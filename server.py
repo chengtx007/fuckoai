@@ -25,7 +25,9 @@ from urllib.parse import parse_qs, quote_plus, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
-PURCHASE_CONFIG_PATH = ROOT / "purchase_config.json"
+APP_NAME = "fuckoai"
+CONFIG_PATH = ROOT / "config.json"
+PURCHASE_CONFIG_PATH = ROOT / "data/purchase_config.json"
 CONTROL_PANEL_PATH = ROOT / "control_panel.html"
 EMAIL_QUEUE_PATH = ROOT / "data/email_queue.json"
 CATALOG_CACHE_PATH = ROOT / "data/catalog_cache.json"
@@ -44,7 +46,62 @@ PURCHASE_FILTER_KEYS = (
 )
 
 
-def load_env_file(path: Path) -> None:
+APP_SETTING_FIELDS = (
+    "HOST",
+    "PORT",
+    "HERO_SMS_API_KEY",
+    "HERO_SMS_API_URL",
+    "TEMP_MAIL_API_URL",
+    "TEMP_MAIL_ADMIN_PASSWORD",
+    "CPA_BASE_URL",
+    "CPA_MANAGEMENT_KEY",
+    "SIGNUP_PASSWORD",
+    "SIGNUP_NAME",
+    "SIGNUP_AGE",
+    "BROWSER_DISPLAY",
+    "BROWSER_PROXY",
+    "UC_SIGNUP_PROXY",
+    "UC_SIGNUP_PHONE_RETRIES",
+    "UC_SIGNUP_SMS_TIMEOUT_SECONDS",
+    "UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS",
+    "UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT",
+    "UC_SIGNUP_CHROME_BINARY",
+    "UC_SIGNUP_CHROME_VERSION",
+    "REQUEST_TIMEOUT_MS",
+    "ENABLE_CORS",
+    "STORE_FILE",
+    "PURCHASE_CONFIG_FILE",
+)
+
+DEFAULT_APP_SETTINGS: dict[str, Any] = {
+    "HOST": "0.0.0.0",
+    "PORT": "3030",
+    "HERO_SMS_API_KEY": "",
+    "HERO_SMS_API_URL": "https://hero-sms.com/stubs/handler_api.php",
+    "TEMP_MAIL_API_URL": "",
+    "TEMP_MAIL_ADMIN_PASSWORD": "",
+    "CPA_BASE_URL": "",
+    "CPA_MANAGEMENT_KEY": "",
+    "SIGNUP_PASSWORD": "FuckOAI123456!",
+    "SIGNUP_NAME": "Fuck OAI",
+    "SIGNUP_AGE": "18",
+    "BROWSER_DISPLAY": ":1",
+    "BROWSER_PROXY": "",
+    "UC_SIGNUP_PROXY": "",
+    "UC_SIGNUP_PHONE_RETRIES": "0",
+    "UC_SIGNUP_SMS_TIMEOUT_SECONDS": "135",
+    "UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS": "10",
+    "UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT": "25",
+    "UC_SIGNUP_CHROME_BINARY": "",
+    "UC_SIGNUP_CHROME_VERSION": "",
+    "REQUEST_TIMEOUT_MS": "15000",
+    "ENABLE_CORS": "true",
+    "STORE_FILE": "./data/activations.json",
+    "PURCHASE_CONFIG_FILE": "./data/purchase_config.json",
+}
+
+
+def load_env_file(path: Path, *, allowed_keys: set[str] | None = None) -> None:
     if not path.exists():
         return
 
@@ -55,11 +112,13 @@ def load_env_file(path: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip()
+        if allowed_keys is not None and key not in allowed_keys:
+            continue
         if key and key not in os.environ:
             os.environ[key] = value
 
 
-load_env_file(ROOT / ".env")
+load_env_file(ROOT / ".env", allowed_keys={"ADMIN_PASSWORD"})
 
 
 def load_json_file(path: Path) -> dict[str, Any]:
@@ -77,6 +136,27 @@ def save_json_file(path: Path, payload: dict[str, Any]) -> None:
     temp_path = path.with_suffix(path.suffix + ".tmp")
     temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temp_path.replace(path)
+
+
+def load_config_values() -> dict[str, str]:
+    file_config = load_json_file(CONFIG_PATH)
+    values = {key: str(DEFAULT_APP_SETTINGS.get(key, "")) for key in APP_SETTING_FIELDS}
+    for key in APP_SETTING_FIELDS:
+        if key in file_config and file_config[key] is not None:
+            values[key] = str(file_config[key])
+    return values
+
+
+def write_config_values(values: dict[str, Any]) -> None:
+    serialized = {key: str(values.get(key, DEFAULT_APP_SETTINGS.get(key, ""))) for key in APP_SETTING_FIELDS}
+    save_json_file(CONFIG_PATH, serialized)
+
+
+APP_CONFIG_VALUES = load_config_values()
+
+
+def app_config_value(key: str, default: Any = "") -> str:
+    return str(APP_CONFIG_VALUES.get(key, DEFAULT_APP_SETTINGS.get(key, default)))
 
 
 def parse_bool_flag(value: Any, default: bool = False) -> bool:
@@ -149,80 +229,73 @@ class UcSignupState:
 
 @dataclass
 class Config:
-    host: str = os.getenv("HOST", "0.0.0.0")
-    port: int = int(os.getenv("PORT", "3030"))
-    api_key: str = os.getenv("HERO_SMS_API_KEY", "")
-    api_url: str = os.getenv("HERO_SMS_API_URL", "https://hero-sms.com/stubs/handler_api.php")
-    default_service_name: str = os.getenv("DEFAULT_SERVICE_NAME", DEFAULT_SERVICE_NAME)
-    default_service_code: str = os.getenv("DEFAULT_SERVICE_CODE", DEFAULT_SERVICE_CODE)
+    host: str = app_config_value("HOST", "0.0.0.0")
+    port: int = int(app_config_value("PORT", "3030"))
+    api_key: str = app_config_value("HERO_SMS_API_KEY", "")
+    api_url: str = app_config_value("HERO_SMS_API_URL", "https://hero-sms.com/stubs/handler_api.php")
+    default_service_name: str = DEFAULT_SERVICE_NAME
+    default_service_code: str = DEFAULT_SERVICE_CODE
     default_service_aliases: list[str] = None
-    default_country_name: str = os.getenv("DEFAULT_COUNTRY_NAME", "")
-    default_country_code: str = os.getenv("DEFAULT_COUNTRY_CODE", "")
+    default_country_name: str = ""
+    default_country_code: str = ""
     default_country_aliases: list[str] = None
-    default_operator: str = os.getenv("DEFAULT_OPERATOR", "any")
-    default_max_price: str = os.getenv("DEFAULT_MAX_PRICE", "")
-    default_exact_price: str = os.getenv("DEFAULT_EXACT_PRICE", "")
-    default_fixed_price: str = os.getenv("DEFAULT_FIXED_PRICE", "")
-    timeout_ms: int = int(os.getenv("REQUEST_TIMEOUT_MS", "15000"))
-    enable_cors: bool = os.getenv("ENABLE_CORS", "true").lower() == "true"
-    store_file: Path = ROOT / os.getenv("STORE_FILE", "./data/activations.json")
+    default_operator: str = "any"
+    default_max_price: str = ""
+    default_exact_price: str = ""
+    default_fixed_price: str = ""
+    timeout_ms: int = int(app_config_value("REQUEST_TIMEOUT_MS", "15000"))
+    enable_cors: bool = app_config_value("ENABLE_CORS", "true").lower() == "true"
+    store_file: Path = ROOT / app_config_value("STORE_FILE", "./data/activations.json")
     purchase_config_file: Path = PURCHASE_CONFIG_PATH
-    temp_mail_api_url: str = os.getenv("TEMP_MAIL_API_URL", "")
-    temp_mail_admin_password: str = os.getenv("TEMP_MAIL_ADMIN_PASSWORD", "")
-    cpa_base_url: str = os.getenv("CPA_BASE_URL", "https://cpa-admin.example.com")
-    cpa_management_key: str = os.getenv("CPA_MANAGEMENT_KEY", "")
-    browser_display: str = os.getenv("BROWSER_DISPLAY", os.getenv("DISPLAY", ":1"))
+    temp_mail_api_url: str = app_config_value("TEMP_MAIL_API_URL", "")
+    temp_mail_admin_password: str = app_config_value("TEMP_MAIL_ADMIN_PASSWORD", "")
+    cpa_base_url: str = app_config_value("CPA_BASE_URL", "")
+    cpa_management_key: str = app_config_value("CPA_MANAGEMENT_KEY", "")
+    browser_display: str = app_config_value("BROWSER_DISPLAY", ":1")
+    browser_proxy: str = app_config_value("BROWSER_PROXY", "")
+    uc_signup_proxy: str = app_config_value("UC_SIGNUP_PROXY", "")
+    uc_signup_phone_retries: str = app_config_value("UC_SIGNUP_PHONE_RETRIES", "0")
+    uc_signup_sms_timeout_seconds: str = app_config_value("UC_SIGNUP_SMS_TIMEOUT_SECONDS", "135")
+    uc_signup_sms_poll_interval_seconds: str = app_config_value("UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS", "10")
+    uc_signup_phone_password_page_timeout: str = app_config_value("UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT", "25")
+    uc_signup_chrome_binary: str = app_config_value("UC_SIGNUP_CHROME_BINARY", "")
+    uc_signup_chrome_version: str = app_config_value("UC_SIGNUP_CHROME_VERSION", "")
+    signup_password: str = app_config_value("SIGNUP_PASSWORD", "FuckOAI123456!")
+    signup_name: str = app_config_value("SIGNUP_NAME", "Fuck OAI")
+    signup_age: str = app_config_value("SIGNUP_AGE", "18")
     admin_password: str = os.getenv("ADMIN_PASSWORD", "")
 
     def __post_init__(self) -> None:
         self.default_service_aliases = [
             item.strip()
-            for item in os.getenv("DEFAULT_SERVICE_ALIASES", "OpenAI,ChatGPT").split(",")
+            for item in "OpenAI,ChatGPT".split(",")
             if item.strip()
         ]
-        self.default_country_aliases = [
-            item.strip()
-            for item in os.getenv("DEFAULT_COUNTRY_ALIASES", "").split(",")
-            if item.strip()
-        ]
-        self.store_file = (ROOT / os.getenv("STORE_FILE", "./data/activations.json")).resolve()
-        self.purchase_config_file = (ROOT / os.getenv("PURCHASE_CONFIG_FILE", "purchase_config.json")).resolve()
-        self.temp_mail_api_url = os.getenv("TEMP_MAIL_API_URL", "").rstrip("/")
-        self.temp_mail_admin_password = os.getenv("TEMP_MAIL_ADMIN_PASSWORD", "")
-        self.cpa_base_url = os.getenv("CPA_BASE_URL", "https://cpa-admin.example.com").rstrip("/")
-        self.cpa_management_key = os.getenv("CPA_MANAGEMENT_KEY", "")
-        self.browser_display = os.getenv("BROWSER_DISPLAY", os.getenv("DISPLAY", ":1"))
+        self.default_country_aliases = []
+        self.store_file = (ROOT / app_config_value("STORE_FILE", "./data/activations.json")).resolve()
+        self.purchase_config_file = (ROOT / app_config_value("PURCHASE_CONFIG_FILE", "./data/purchase_config.json")).resolve()
+        self.temp_mail_api_url = app_config_value("TEMP_MAIL_API_URL", "").rstrip("/")
+        self.temp_mail_admin_password = app_config_value("TEMP_MAIL_ADMIN_PASSWORD", "")
+        self.cpa_base_url = app_config_value("CPA_BASE_URL", "").rstrip("/")
+        self.cpa_management_key = app_config_value("CPA_MANAGEMENT_KEY", "")
+        self.browser_display = app_config_value("BROWSER_DISPLAY", ":1")
+        self.browser_proxy = app_config_value("BROWSER_PROXY", "")
+        self.uc_signup_proxy = app_config_value("UC_SIGNUP_PROXY", "")
+        self.uc_signup_phone_retries = app_config_value("UC_SIGNUP_PHONE_RETRIES", "0")
+        self.uc_signup_sms_timeout_seconds = app_config_value("UC_SIGNUP_SMS_TIMEOUT_SECONDS", "135")
+        self.uc_signup_sms_poll_interval_seconds = app_config_value("UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS", "10")
+        self.uc_signup_phone_password_page_timeout = app_config_value("UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT", "25")
+        self.uc_signup_chrome_binary = app_config_value("UC_SIGNUP_CHROME_BINARY", "")
+        self.uc_signup_chrome_version = app_config_value("UC_SIGNUP_CHROME_VERSION", "")
+        self.signup_password = app_config_value("SIGNUP_PASSWORD", "FuckOAI123456!")
+        self.signup_name = app_config_value("SIGNUP_NAME", "Fuck OAI")
+        self.signup_age = app_config_value("SIGNUP_AGE", "18")
         self.admin_password = os.getenv("ADMIN_PASSWORD", "")
 
 
 CONFIG = Config()
 
 ENV_PATH = ROOT / ".env"
-APP_SETTING_FIELDS = (
-    "ADMIN_PASSWORD",
-    "HOST",
-    "PORT",
-    "HERO_SMS_API_KEY",
-    "HERO_SMS_API_URL",
-    "TEMP_MAIL_API_URL",
-    "TEMP_MAIL_ADMIN_PASSWORD",
-    "CPA_BASE_URL",
-    "CPA_MANAGEMENT_KEY",
-    "SIGNUP_PASSWORD",
-    "SIGNUP_NAME",
-    "SIGNUP_AGE",
-    "DEFAULT_SERVICE_NAME",
-    "DEFAULT_SERVICE_CODE",
-    "DEFAULT_COUNTRY_NAME",
-    "DEFAULT_COUNTRY_CODE",
-    "DEFAULT_OPERATOR",
-    "DEFAULT_MAX_PRICE",
-    "DEFAULT_EXACT_PRICE",
-    "DEFAULT_FIXED_PRICE",
-    "BROWSER_DISPLAY",
-    "BROWSER_PROXY",
-    "UC_SIGNUP_PROXY",
-)
 
 
 STATUS_LABELS = {
@@ -255,9 +328,77 @@ ACTIVE_STATUS_MAP = {
     "8": ("canceled", "已取消", "STATUS_CANCEL"),
 }
 
+ZH_COUNTRY_CHAR_MAP = str.maketrans(
+    {
+        "國": "国",
+        "爾": "尔",
+        "亞": "亚",
+        "達": "达",
+        "蘭": "兰",
+        "義": "义",
+        "羅": "罗",
+        "馬": "马",
+        "維": "维",
+        "貝": "贝",
+        "麥": "麦",
+        "臘": "腊",
+        "盧": "卢",
+        "門": "门",
+        "臺": "台",
+        "灣": "湾",
+        "烏": "乌",
+        "魯": "鲁",
+        "薩": "萨",
+        "聖": "圣",
+        "幾": "几",
+        "納": "纳",
+        "剛": "刚",
+        "島": "岛",
+        "裡": "里",
+        "蘇": "苏",
+        "聯": "联",
+        "長": "长",
+        "茲": "兹",
+        "團": "团",
+        "圓": "圆",
+        "贊": "赞",
+        "歐": "欧",
+        "愛": "爱",
+        "倫": "伦",
+        "屬": "属",
+        "與": "与",
+        "內": "内",
+        "庫": "库",
+        "錫": "锡",
+    }
+)
+
+COUNTRY_ALIASES_BY_NAME = {
+    "bhutan": ["不丹"],
+    "france": ["法国"],
+    "italy": ["意大利"],
+    "reunion": ["留尼汪"],
+    "georgia": ["格鲁吉亚"],
+    "england": ["英国", "英格兰"],
+    "united kingdom": ["英国"],
+    "united states": ["美国"],
+    "uae": ["阿联酋"],
+    "united arab emirates": ["阿联酋"],
+    "ivory coast": ["科特迪瓦"],
+    "laos": ["老挝"],
+    "syria": ["叙利亚"],
+    "vietnam": ["越南"],
+    "south korea": ["韩国"],
+    "north macedonia": ["北马其顿"],
+    "bosnia and herzegovina": ["波黑", "波斯尼亚和黑塞哥维那"],
+    "democratic republic of the congo": ["刚果金"],
+    "republic of the congo": ["刚果布"],
+}
+
 
 def normalize_text(value: Any) -> str:
-    return "".join(ch for ch in str(value or "").lower() if ch.isalnum())
+    text = str(value or "").translate(ZH_COUNTRY_CHAR_MAP).lower()
+    return "".join(ch for ch in text if ch.isalnum())
 
 
 def collect_string_values(value: Any) -> list[str]:
@@ -1008,84 +1149,42 @@ PURCHASE_GROUP_CURSOR_LOCK = threading.Lock()
 PURCHASE_GROUP_NEXT_INDEX = 0
 
 
-def read_env_values() -> dict[str, str]:
-    defaults = {
-        "HERO_SMS_API_KEY": CONFIG.api_key,
-        "HERO_SMS_API_URL": CONFIG.api_url,
-        "TEMP_MAIL_API_URL": CONFIG.temp_mail_api_url,
-        "TEMP_MAIL_ADMIN_PASSWORD": CONFIG.temp_mail_admin_password,
-        "CPA_BASE_URL": CONFIG.cpa_base_url,
-        "CPA_MANAGEMENT_KEY": CONFIG.cpa_management_key,
-        "SIGNUP_PASSWORD": os.getenv("SIGNUP_PASSWORD", ""),
-        "SIGNUP_NAME": os.getenv("SIGNUP_NAME", ""),
-        "SIGNUP_AGE": os.getenv("SIGNUP_AGE", ""),
-        "DEFAULT_SERVICE_NAME": CONFIG.default_service_name,
-        "DEFAULT_SERVICE_CODE": CONFIG.default_service_code,
-        "DEFAULT_COUNTRY_NAME": CONFIG.default_country_name,
-        "DEFAULT_COUNTRY_CODE": CONFIG.default_country_code,
-        "DEFAULT_OPERATOR": CONFIG.default_operator,
-        "DEFAULT_MAX_PRICE": CONFIG.default_max_price,
-        "DEFAULT_EXACT_PRICE": CONFIG.default_exact_price,
-        "DEFAULT_FIXED_PRICE": CONFIG.default_fixed_price,
-        "BROWSER_DISPLAY": CONFIG.browser_display,
-    }
-    values: dict[str, str] = {}
-    if ENV_PATH.exists():
-        for raw_line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            values[key.strip()] = value.strip()
-    for key in APP_SETTING_FIELDS:
-        values.setdefault(key, str(defaults.get(key, os.getenv(key, ""))))
-    return values
-
-
-def write_env_values(values: dict[str, str]) -> None:
-    existing_lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    remaining = {key: str(value) for key, value in values.items() if key in APP_SETTING_FIELDS}
-    output_lines: list[str] = []
-
-    for raw_line in existing_lines:
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            output_lines.append(raw_line)
-            continue
-        key, _ = raw_line.split("=", 1)
-        env_key = key.strip()
-        if env_key in remaining:
-            output_lines.append(f"{env_key}={remaining.pop(env_key)}")
-        else:
-            output_lines.append(raw_line)
-
-    for key in APP_SETTING_FIELDS:
-        if key in remaining:
-            output_lines.append(f"{key}={remaining.pop(key)}")
-
-    ENV_PATH.write_text("\n".join(output_lines).rstrip() + "\n", encoding="utf-8")
-
-
 def reload_runtime_config() -> None:
-    global CLIENT, TEMP_MAIL, CPA
+    global APP_CONFIG_VALUES, CLIENT, TEMP_MAIL, CPA
 
-    CONFIG.host = os.getenv("HOST", "0.0.0.0")
-    CONFIG.port = int(os.getenv("PORT", str(CONFIG.port)))
-    CONFIG.api_key = os.getenv("HERO_SMS_API_KEY", "")
-    CONFIG.api_url = os.getenv("HERO_SMS_API_URL", "https://hero-sms.com/stubs/handler_api.php")
-    CONFIG.default_service_name = os.getenv("DEFAULT_SERVICE_NAME", DEFAULT_SERVICE_NAME)
-    CONFIG.default_service_code = os.getenv("DEFAULT_SERVICE_CODE", DEFAULT_SERVICE_CODE)
-    CONFIG.default_country_name = os.getenv("DEFAULT_COUNTRY_NAME", "")
-    CONFIG.default_country_code = os.getenv("DEFAULT_COUNTRY_CODE", "")
-    CONFIG.default_operator = os.getenv("DEFAULT_OPERATOR", "any")
-    CONFIG.default_max_price = os.getenv("DEFAULT_MAX_PRICE", "")
-    CONFIG.default_exact_price = os.getenv("DEFAULT_EXACT_PRICE", "")
-    CONFIG.default_fixed_price = os.getenv("DEFAULT_FIXED_PRICE", "")
-    CONFIG.temp_mail_api_url = os.getenv("TEMP_MAIL_API_URL", "").rstrip("/")
-    CONFIG.temp_mail_admin_password = os.getenv("TEMP_MAIL_ADMIN_PASSWORD", "")
-    CONFIG.cpa_base_url = os.getenv("CPA_BASE_URL", "https://cpa-admin.example.com").rstrip("/")
-    CONFIG.cpa_management_key = os.getenv("CPA_MANAGEMENT_KEY", "")
-    CONFIG.browser_display = os.getenv("BROWSER_DISPLAY", os.getenv("DISPLAY", ":1"))
+    APP_CONFIG_VALUES = load_config_values()
+    CONFIG.host = app_config_value("HOST", "0.0.0.0")
+    CONFIG.port = int(app_config_value("PORT", str(CONFIG.port)))
+    CONFIG.api_key = app_config_value("HERO_SMS_API_KEY", "")
+    CONFIG.api_url = app_config_value("HERO_SMS_API_URL", "https://hero-sms.com/stubs/handler_api.php")
+    CONFIG.default_service_name = DEFAULT_SERVICE_NAME
+    CONFIG.default_service_code = DEFAULT_SERVICE_CODE
+    CONFIG.default_country_name = ""
+    CONFIG.default_country_code = ""
+    CONFIG.default_operator = "any"
+    CONFIG.default_max_price = ""
+    CONFIG.default_exact_price = ""
+    CONFIG.default_fixed_price = ""
+    CONFIG.timeout_ms = int(app_config_value("REQUEST_TIMEOUT_MS", str(CONFIG.timeout_ms)))
+    CONFIG.enable_cors = app_config_value("ENABLE_CORS", "true").lower() == "true"
+    CONFIG.store_file = (ROOT / app_config_value("STORE_FILE", "./data/activations.json")).resolve()
+    CONFIG.purchase_config_file = (ROOT / app_config_value("PURCHASE_CONFIG_FILE", "./data/purchase_config.json")).resolve()
+    CONFIG.temp_mail_api_url = app_config_value("TEMP_MAIL_API_URL", "").rstrip("/")
+    CONFIG.temp_mail_admin_password = app_config_value("TEMP_MAIL_ADMIN_PASSWORD", "")
+    CONFIG.cpa_base_url = app_config_value("CPA_BASE_URL", "").rstrip("/")
+    CONFIG.cpa_management_key = app_config_value("CPA_MANAGEMENT_KEY", "")
+    CONFIG.browser_display = app_config_value("BROWSER_DISPLAY", ":1")
+    CONFIG.browser_proxy = app_config_value("BROWSER_PROXY", "")
+    CONFIG.uc_signup_proxy = app_config_value("UC_SIGNUP_PROXY", "")
+    CONFIG.uc_signup_phone_retries = app_config_value("UC_SIGNUP_PHONE_RETRIES", "0")
+    CONFIG.uc_signup_sms_timeout_seconds = app_config_value("UC_SIGNUP_SMS_TIMEOUT_SECONDS", "135")
+    CONFIG.uc_signup_sms_poll_interval_seconds = app_config_value("UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS", "10")
+    CONFIG.uc_signup_phone_password_page_timeout = app_config_value("UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT", "25")
+    CONFIG.uc_signup_chrome_binary = app_config_value("UC_SIGNUP_CHROME_BINARY", "")
+    CONFIG.uc_signup_chrome_version = app_config_value("UC_SIGNUP_CHROME_VERSION", "")
+    CONFIG.signup_password = app_config_value("SIGNUP_PASSWORD", "FuckOAI123456!")
+    CONFIG.signup_name = app_config_value("SIGNUP_NAME", "Fuck OAI")
+    CONFIG.signup_age = app_config_value("SIGNUP_AGE", "18")
     CONFIG.admin_password = os.getenv("ADMIN_PASSWORD", "")
 
     CLIENT = HeroSmsClient(CONFIG.api_key, CONFIG.api_url, CONFIG.timeout_ms)
@@ -1097,7 +1196,7 @@ def make_admin_session_token() -> str:
     password = CONFIG.admin_password
     if not password:
         return ""
-    return hmac.new(password.encode("utf-8"), b"gpt-reg-admin-session", hashlib.sha256).hexdigest()
+    return hmac.new(password.encode("utf-8"), b"fuckoai-admin-session", hashlib.sha256).hexdigest()
 
 
 def load_control_panel_html() -> str:
@@ -1108,9 +1207,9 @@ def load_control_panel_html() -> str:
 
 
 def get_app_settings() -> dict[str, Any]:
-    values = read_env_values()
+    values = load_config_values()
     return {
-        "envFile": str(ENV_PATH),
+        "configFile": str(CONFIG_PATH),
         "settings": {key: values.get(key, "") for key in APP_SETTING_FIELDS},
     }
 
@@ -1120,14 +1219,12 @@ def update_app_settings(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(settings, dict):
         raise ValueError("settings 必须是对象")
 
-    current = read_env_values()
+    current = load_config_values()
     next_values = {
         key: str(settings[key]).strip() if key in settings and settings[key] is not None else current.get(key, "")
         for key in APP_SETTING_FIELDS
     }
-    write_env_values(next_values)
-    for key, value in next_values.items():
-        os.environ[key] = value
+    write_config_values(next_values)
     reload_runtime_config()
     return get_app_settings()
 
@@ -1165,24 +1262,10 @@ def normalize_email_lines(value: Any) -> list[str]:
     return emails
 
 
-def generate_sequential_emails(first_email: str, total: int) -> list[str]:
-    normalized = first_email.strip()
-    if "@" not in normalized:
-        raise ValueError("顺序前缀模式需要输入完整邮箱，例如 user001@example.com")
-    local_part, domain = normalized.split("@", 1)
-    match = re.match(r"^(.*?)(\d+)$", local_part)
-    if not match:
-        raise ValueError("顺序前缀模式要求邮箱前缀以数字结尾，例如 user001@example.com 或 useruser001@example.com")
-    prefix, number_text = match.groups()
-    width = len(number_text)
-    start = int(number_text)
-    return [f"{prefix}{start + offset:0{width}d}@{domain}" for offset in range(total)]
-
-
 def generate_random_emails(domain: str, total: int) -> list[str]:
     normalized_domain = domain.strip()
     if not normalized_domain:
-        raise ValueError("随机前缀模式需要填写域名，例如 example.com")
+        raise ValueError("请填写邮箱后缀域名，例如 example.com")
     results: list[str] = []
     seen: set[str] = set()
     while len(results) < total:
@@ -1241,11 +1324,7 @@ def update_email_queue(payload: dict[str, Any]) -> dict[str, Any]:
 
 def generate_email_queue(payload: dict[str, Any]) -> dict[str, Any]:
     total = parse_positive_int(payload.get("total"), default=1)
-    mode = str(payload.get("mode") or "sequential").strip().lower()
-    if mode == "random":
-        emails = generate_random_emails(str(payload.get("domain") or ""), total)
-    else:
-        emails = generate_sequential_emails(str(payload.get("firstEmail") or ""), total)
+    emails = generate_random_emails(str(payload.get("domain") or ""), total)
     return save_email_queue({
         **load_email_queue(),
         "emails": emails,
@@ -1419,16 +1498,15 @@ class UcSignupManager:
             command.extend(["--email", email])
         proxy = str(
             options.get("proxy")
-            or os.getenv("UC_SIGNUP_PROXY", "")
-            or os.getenv("BROWSER_PROXY", "")
-            or os.getenv("PROXY", "")
+            or CONFIG.uc_signup_proxy
+            or CONFIG.browser_proxy
         ).strip()
         if proxy:
             command.extend(["--proxy", proxy])
-        chrome_binary = str(options.get("chromeBinary") or os.getenv("UC_SIGNUP_CHROME_BINARY", "")).strip()
+        chrome_binary = str(options.get("chromeBinary") or CONFIG.uc_signup_chrome_binary).strip()
         if chrome_binary:
             command.extend(["--chrome-binary", chrome_binary])
-        chrome_version = str(options.get("chromeVersion") or os.getenv("UC_SIGNUP_CHROME_VERSION", "")).strip()
+        chrome_version = str(options.get("chromeVersion") or CONFIG.uc_signup_chrome_version).strip()
         if chrome_version:
             command.extend(["--chrome-version", chrome_version])
 
@@ -1436,14 +1514,29 @@ class UcSignupManager:
         env["PYTHONUNBUFFERED"] = "1"
         env["UC_SIGNUP_API_BASE"] = str(options.get("apiBase") or f"http://127.0.0.1:{CONFIG.port}")
         env["UC_SIGNUP_DISPLAY"] = str(options.get("display") or CONFIG.browser_display)
+        if CONFIG.admin_password:
+            env["UC_SIGNUP_ADMIN_PASSWORD"] = CONFIG.admin_password
         if proxy:
             env["UC_SIGNUP_PROXY"] = proxy
+        for env_key, value in (
+            ("UC_SIGNUP_PHONE_RETRIES", CONFIG.uc_signup_phone_retries),
+            ("UC_SIGNUP_SMS_TIMEOUT_SECONDS", CONFIG.uc_signup_sms_timeout_seconds),
+            ("UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS", CONFIG.uc_signup_sms_poll_interval_seconds),
+            ("UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT", CONFIG.uc_signup_phone_password_page_timeout),
+        ):
+            if str(value).strip():
+                env[env_key] = str(value).strip()
         for key, env_key in (
             ("password", "SIGNUP_PASSWORD"),
             ("name", "SIGNUP_NAME"),
             ("age", "SIGNUP_AGE"),
         ):
-            value = str(options.get(key) or "").strip()
+            fallback = {
+                "password": CONFIG.signup_password,
+                "name": CONFIG.signup_name,
+                "age": CONFIG.signup_age,
+            }.get(key, "")
+            value = str(options.get(key) or fallback).strip()
             if value:
                 env[env_key] = value
 
@@ -1554,567 +1647,10 @@ class UcSignupManager:
 UC_SIGNUP_MANAGER = UcSignupManager()
 
 
-CONTROL_PANEL_HTML = r"""<!doctype html>
+CONTROL_PANEL_HTML = """<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GPT Reg Linux 控制面板</title>
-  <style>
-    :root {
-      color-scheme: light;
-      --bg: #f6f7f9;
-      --panel: #ffffff;
-      --line: #d9dee7;
-      --text: #172033;
-      --muted: #687386;
-      --primary: #1f6feb;
-      --danger: #b42318;
-      --ok: #137333;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 14px 18px;
-      border-bottom: 1px solid var(--line);
-      background: #fff;
-      position: sticky;
-      top: 0;
-      z-index: 2;
-    }
-    h1 { margin: 0; font-size: 18px; }
-    h2 { margin: 0 0 12px; font-size: 15px; }
-    main {
-      display: grid;
-      grid-template-columns: minmax(320px, 460px) minmax(420px, 1fr);
-      gap: 14px;
-      padding: 14px;
-    }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-    }
-    .stack { display: grid; gap: 14px; }
-    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .field { display: grid; gap: 6px; margin-bottom: 10px; }
-    label { font-size: 12px; color: var(--muted); }
-    input, textarea {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px 10px;
-      color: var(--text);
-      background: #fff;
-      font: inherit;
-    }
-    select {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px 10px;
-      color: var(--text);
-      background: #fff;
-      font: inherit;
-    }
-    textarea { min-height: 260px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .settings-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-    .compact-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-    }
-    button, a.button {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px 11px;
-      background: #fff;
-      color: var(--text);
-      cursor: pointer;
-      text-decoration: none;
-      font: inherit;
-    }
-    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-    button.danger { background: #fff5f5; border-color: #fecaca; color: var(--danger); }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    .status {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }
-    .metric {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px;
-      min-height: 58px;
-    }
-    .metric b { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-    .metric span { word-break: break-word; }
-    .ok { color: var(--ok); }
-    .bad { color: var(--danger); }
-    pre {
-      white-space: pre-wrap;
-      word-break: break-word;
-      margin: 0;
-      padding: 10px;
-      border-radius: 6px;
-      border: 1px solid var(--line);
-      background: #0f172a;
-      color: #dbeafe;
-      min-height: 180px;
-      max-height: 360px;
-      overflow: auto;
-    }
-    iframe {
-      width: 100%;
-      height: min(72vh, 760px);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #111827;
-    }
-    .muted { color: var(--muted); }
-    @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; }
-      .status { grid-template-columns: 1fr; }
-      .settings-grid { grid-template-columns: 1fr; }
-      .compact-grid { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>GPT Reg Linux 控制面板</h1>
-    <div class="row">
-      <a class="button" href="/api" target="_blank">API</a>
-      <button id="refreshAll">刷新</button>
-    </div>
-  </header>
-  <main>
-    <div class="stack">
-      <section>
-        <h2>服务状态</h2>
-        <div class="status">
-          <div class="metric"><b>API</b><span id="apiState">--</span></div>
-          <div class="metric"><b>HeroSMS</b><span id="heroState">--</span></div>
-          <div class="metric"><b>Temp Mail</b><span id="mailState">--</span></div>
-          <div class="metric"><b>CPA/OAuth</b><span id="cpaState">--</span></div>
-        </div>
-      </section>
-
-      <section>
-        <h2>邮箱列表</h2>
-        <div class="compact-grid">
-          <div class="field">
-            <label for="emailMode">生成模式</label>
-            <select id="emailMode">
-              <option value="sequential">顺序前缀</option>
-              <option value="random">随机前缀</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="emailTotal">数量</label>
-            <input id="emailTotal" value="1" inputmode="numeric">
-          </div>
-          <div class="field">
-            <label for="emailCurrent">当前邮箱</label>
-            <input id="emailCurrent" placeholder="启动后显示">
-          </div>
-        </div>
-        <div class="field">
-          <label for="firstEmail">顺序模式第一个邮箱</label>
-          <input id="firstEmail" value="user001@example.com">
-        </div>
-        <div class="field">
-          <label for="randomDomain">随机模式域名</label>
-          <input id="randomDomain" value="example.com">
-        </div>
-        <div class="field">
-          <label for="emailQueueText">待注册邮箱列表，一行一个</label>
-          <textarea id="emailQueueText" spellcheck="false" style="min-height:150px"></textarea>
-        </div>
-        <div class="row">
-          <button id="generateEmailQueueBtn">生成列表</button>
-          <button id="saveEmailQueueBtn">保存列表</button>
-          <button id="loadEmailQueueBtn">重新加载</button>
-        </div>
-        <div class="row">
-          <button id="mailCodeBtn">查邮箱验证码</button>
-        </div>
-        <p id="emailQueueState" class="muted">--</p>
-      </section>
-
-      <section>
-        <h2>号码</h2>
-        <div class="row">
-          <button id="balanceBtn">查余额</button>
-          <button id="purchaseBtn" class="primary">购买号码</button>
-          <button id="currentBtn">当前号码</button>
-        </div>
-        <div class="field" style="margin-top:10px">
-          <label for="phoneInput">手机号</label>
-          <input id="phoneInput" placeholder="购买后自动填入，也可手动输入">
-        </div>
-        <div class="row">
-          <button id="codeBtn">获取验证码</button>
-          <button id="cancelBtn" class="danger">取消号码</button>
-          <button id="finishBtn">完成号码</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>UC 最终版自动注册</h2>
-        <div class="status">
-          <div class="metric"><b>状态</b><span id="ucSignupPhase">空闲</span></div>
-          <div class="metric"><b>进度</b><span id="ucSignupProgress">0/0</span></div>
-          <div class="metric"><b>当前邮箱</b><span id="ucSignupCurrentEmail">--</span></div>
-          <div class="metric"><b>当前手机</b><span id="ucSignupCurrentPhone">--</span></div>
-          <div class="metric"><b>当前步骤</b><span id="ucSignupCurrentStep">--</span></div>
-          <div class="metric"><b>结果</b><span id="ucSignupResultsSummary">成功 0 / 失败 0</span></div>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <button id="ucSignupStartBtn" class="primary">开始 UC 注册任务</button>
-          <button id="ucSignupStopBtn" class="danger" disabled>停止 UC 任务</button>
-          <button id="ucSignupRefreshBtn">刷新 UC 状态</button>
-        </div>
-        <div class="field" style="margin-top:10px">
-          <label for="ucSignupResultText">UC 注册结果</label>
-          <textarea id="ucSignupResultText" readonly style="min-height:110px"></textarea>
-        </div>
-        <div class="field">
-          <label for="ucSignupLogOutput">UC 实时日志</label>
-          <pre id="ucSignupLogOutput" style="min-height:220px;max-height:420px"></pre>
-        </div>
-      </section>
-
-      <section>
-        <h2>接口设置</h2>
-        <div class="settings-grid">
-          <div class="field"><label for="cfg_HERO_SMS_API_KEY">HeroSMS Key</label><input id="cfg_HERO_SMS_API_KEY" autocomplete="off"></div>
-          <div class="field"><label for="cfg_HERO_SMS_API_URL">HeroSMS API 地址</label><input id="cfg_HERO_SMS_API_URL"></div>
-          <div class="field"><label for="cfg_TEMP_MAIL_API_URL">TempMail 地址</label><input id="cfg_TEMP_MAIL_API_URL"></div>
-          <div class="field"><label for="cfg_TEMP_MAIL_ADMIN_PASSWORD">TempMail Admin Password</label><input id="cfg_TEMP_MAIL_ADMIN_PASSWORD" autocomplete="off"></div>
-          <div class="field"><label for="cfg_CPA_BASE_URL">CPA 回调/管理地址</label><input id="cfg_CPA_BASE_URL"></div>
-          <div class="field"><label for="cfg_CPA_MANAGEMENT_KEY">CPA Management Key</label><input id="cfg_CPA_MANAGEMENT_KEY" autocomplete="off"></div>
-          <div class="field"><label for="cfg_SIGNUP_PASSWORD">注册默认密码</label><input id="cfg_SIGNUP_PASSWORD" autocomplete="off"></div>
-          <div class="field"><label for="cfg_SIGNUP_NAME">注册默认姓名</label><input id="cfg_SIGNUP_NAME"></div>
-          <div class="field"><label for="cfg_SIGNUP_AGE">注册默认年龄</label><input id="cfg_SIGNUP_AGE" inputmode="numeric"></div>
-          <div class="field"><label for="cfg_BROWSER_DISPLAY">浏览器 DISPLAY</label><input id="cfg_BROWSER_DISPLAY"></div>
-        </div>
-        <div class="row">
-          <button id="loadAppSettingsBtn">重新加载</button>
-          <button id="saveAppSettingsBtn" class="primary">保存接口设置</button>
-        </div>
-      </section>
-
-      <section>
-        <h2>购买设置</h2>
-        <div class="field">
-          <label for="settingsText">purchase_config.json</label>
-          <textarea id="settingsText" spellcheck="false"></textarea>
-        </div>
-        <div class="row">
-          <button id="loadSettingsBtn">重新加载</button>
-          <button id="saveSettingsBtn" class="primary">保存设置</button>
-        </div>
-      </section>
-    </div>
-
-    <div class="stack">
-      <section>
-        <h2>输出</h2>
-        <pre id="output"></pre>
-      </section>
-    </div>
-  </main>
-  <script>
-    const $ = (id) => document.getElementById(id);
-    const output = $("output");
-    const appSettingKeys = [
-      "HERO_SMS_API_KEY",
-      "HERO_SMS_API_URL",
-      "TEMP_MAIL_API_URL",
-      "TEMP_MAIL_ADMIN_PASSWORD",
-      "CPA_BASE_URL",
-      "CPA_MANAGEMENT_KEY",
-      "SIGNUP_PASSWORD",
-      "SIGNUP_NAME",
-      "SIGNUP_AGE",
-      "BROWSER_DISPLAY",
-    ];
-
-    function log(value) {
-      const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-      output.textContent = `${new Date().toLocaleTimeString()} ${text}\n\n` + output.textContent;
-    }
-
-    async function requestJSON(method, url, body) {
-      const init = { method, headers: { Accept: "application/json" } };
-      if (body !== undefined) {
-        init.headers["Content-Type"] = "application/json";
-        init.body = JSON.stringify(body);
-      }
-      const response = await fetch(url, init);
-      const text = await response.text();
-      let payload = {};
-      try { payload = text ? JSON.parse(text) : {}; } catch { payload = { raw: text }; }
-      if (!response.ok) throw new Error(payload.error || text || response.statusText);
-      return payload;
-    }
-
-    function setState(id, ok, label) {
-      const node = $(id);
-      node.className = ok ? "ok" : "bad";
-      node.textContent = label;
-    }
-
-    async function refreshHealth() {
-      const health = await requestJSON("GET", "/api/health");
-      setState("apiState", health.ok, health.ok ? "运行中" : "异常");
-      setState("heroState", health.configured, health.configured ? "已配置" : "未配置");
-      setState("mailState", health.tempMailConfigured, health.tempMailConfigured ? "已配置" : "未配置");
-      setState("cpaState", health.cpaConfigured, health.cpaConfigured ? "已配置" : "未配置");
-      return health;
-    }
-
-    async function loadSettings() {
-      const payload = await requestJSON("GET", "/api/purchase-settings");
-      $("settingsText").value = JSON.stringify(payload.purchaseSettings || payload, null, 2);
-    }
-
-    async function loadEmailQueue() {
-      const payload = await requestJSON("GET", "/api/email-queue");
-      updateEmailQueueUI(payload.emailQueue || payload);
-    }
-
-    function updateEmailQueueUI(queue) {
-      const emails = queue.emails || [];
-      $("emailQueueText").value = emails.join("\n");
-      $("emailCurrent").value = queue.activeEmail || emails[queue.cursor || 0] || "";
-      const position = emails.length ? `${(queue.cursor || 0) + 1}/${emails.length}` : "0/0";
-      $("emailQueueState").textContent = `队列 ${position} 当前=${$("emailCurrent").value || "--"}`;
-    }
-
-    async function loadAppSettings() {
-      const payload = await requestJSON("GET", "/api/app-settings");
-      const settings = payload.settings || {};
-      for (const key of appSettingKeys) {
-        const input = $(`cfg_${key}`);
-        if (input) input.value = settings[key] || "";
-      }
-    }
-
-    async function purchasePhone() {
-      const payload = await requestJSON("POST", "/api/purchase", {});
-      const phone = payload.item && payload.item.phoneNumber;
-      if (phone) $("phoneInput").value = phone;
-      log(payload);
-    }
-
-    async function currentPhone() {
-      const payload = await requestJSON("GET", "/api/current-phone");
-      const phone = payload.item && payload.item.phoneNumber;
-      if (phone) $("phoneInput").value = phone;
-      log(payload);
-    }
-
-    async function phoneAction(action) {
-      const phone = $("phoneInput").value.trim();
-      if (!phone) throw new Error("请先输入手机号");
-      const payload = await requestJSON(action === "code" ? "GET" : "POST", `/api/phones/${encodeURIComponent(phone)}/${action}`, action === "code" ? undefined : {});
-      log(payload);
-    }
-
-    async function saveSettings() {
-      const payload = JSON.parse($("settingsText").value);
-      const result = await requestJSON("POST", "/api/purchase-settings", payload);
-      $("settingsText").value = JSON.stringify(result.purchaseSettings || result, null, 2);
-      log("购买设置已保存");
-    }
-
-    async function generateEmailQueue() {
-      const payload = await requestJSON("POST", "/api/email-queue/generate", {
-        mode: $("emailMode").value,
-        firstEmail: $("firstEmail").value.trim(),
-        domain: $("randomDomain").value.trim(),
-        total: $("emailTotal").value.trim(),
-      });
-      updateEmailQueueUI(payload.emailQueue || payload);
-      log({ message: "邮箱列表已生成", emailQueue: payload.emailQueue || payload });
-    }
-
-    async function saveEmailQueue() {
-      const payload = await requestJSON("POST", "/api/email-queue", {
-        emailsText: $("emailQueueText").value,
-      });
-      updateEmailQueueUI(payload.emailQueue || payload);
-      log("邮箱列表已保存");
-    }
-
-    async function refreshEmailCode() {
-      const email = $("emailCurrent").value.trim();
-      const url = email ? `/api/email-queue/mail/latest?address=${encodeURIComponent(email)}` : "/api/email-queue/mail/latest";
-      const payload = await requestJSON("GET", url);
-      updateEmailQueueUI(payload.emailQueue || {});
-      log(payload);
-    }
-
-    async function saveAppSettings() {
-      const settings = {};
-      for (const key of appSettingKeys) {
-        const input = $(`cfg_${key}`);
-        if (input) settings[key] = input.value;
-      }
-      const result = await requestJSON("POST", "/api/app-settings", { settings });
-      log({ message: "接口设置已保存", envFile: result.envFile });
-      await refreshHealth();
-    }
-
-    let ucSignupPollTimer = null;
-
-    const PHASE_LABELS = {
-      idle: "空闲", running: "运行中", stopping: "停止中", stopped: "已停止", done: "已完成",
-    };
-    const UC_SIGNUP_STEP_LABELS = {
-      starting: "启动脚本",
-      buying_phone: "购买号码/创建邮箱",
-      opening_signup: "打开注册页",
-      accepting_cookie: "处理 Cookie",
-      filling_phone: "填写手机号",
-      waiting_sms: "等待短信验证码",
-      filling_sms_code: "填写短信验证码",
-      filling_password: "填写密码",
-      filling_account_details: "填写姓名年龄",
-      oauth: "OAuth 授权流程",
-      filling_email: "绑定邮箱",
-      filling_email_code: "填写邮箱验证码",
-      authorizing: "确认授权",
-      waiting_oauth_callback: "等待 OAuth 回调",
-      cpa_callback: "回填 CPA",
-      completed: "完成",
-    };
-
-    function renderUcSignupResults(state) {
-      const results = state.results || [];
-      $("ucSignupResultText").value = results.length
-        ? results.map((item, index) => {
-            const status = item.status === "success" ? "成功" : item.status === "stopped" ? "已停止" : "失败";
-            const suffix = item.error ? ` - ${item.error}` : "";
-            return `${index + 1}. [${status}] ${item.email || "--"}${suffix}`;
-          }).join("\n")
-        : "";
-    }
-
-    async function refreshUcSignupLogs() {
-      const payload = await requestJSON("GET", "/api/uc-signup/logs");
-      const logs = payload.logs || [];
-      $("ucSignupLogOutput").textContent = logs.map((entry) => {
-        const timestamp = (entry.time || "").slice(11, 19) || "--:--:--";
-        const prefix = entry.level === "error" ? "ERROR" : entry.level === "warn" ? "WARN " : "INFO ";
-        return `[${timestamp}] ${prefix} ${entry.message || ""}`;
-      }).join("\n");
-      $("ucSignupLogOutput").scrollTop = $("ucSignupLogOutput").scrollHeight;
-    }
-
-    async function refreshUcSignupStatus() {
-      let state = {};
-      try {
-        const payload = await requestJSON("GET", "/api/uc-signup/status");
-        state = payload.ucSignupState || payload;
-      } catch {
-        if (ucSignupPollTimer) { clearInterval(ucSignupPollTimer); ucSignupPollTimer = null; }
-        return;
-      }
-      $("ucSignupPhase").textContent = PHASE_LABELS[state.phase] || state.phase || "空闲";
-      $("ucSignupProgress").textContent = `${state.completed || 0}/${state.total || 0}`;
-      $("ucSignupCurrentEmail").textContent = state.currentEmail || "--";
-      $("ucSignupCurrentPhone").textContent = state.currentPhone || "--";
-      $("ucSignupCurrentStep").textContent = UC_SIGNUP_STEP_LABELS[state.currentStep] || state.currentStep || "--";
-      $("ucSignupResultsSummary").textContent = `成功 ${state.success || 0} / 失败 ${state.failed || 0}`;
-      renderUcSignupResults(state);
-      try { await refreshUcSignupLogs(); } catch(e) {}
-
-      const running = Boolean(state.running);
-      $("ucSignupStartBtn").disabled = running;
-      $("ucSignupStopBtn").disabled = !running;
-      if (running) {
-        if (!ucSignupPollTimer) ucSignupPollTimer = setInterval(refreshUcSignupStatus, 3000);
-      } else if (ucSignupPollTimer) {
-        clearInterval(ucSignupPollTimer);
-        ucSignupPollTimer = null;
-      }
-    }
-
-    async function startUcSignup() {
-      await saveEmailQueue();
-      const body = {
-        password: $("cfg_SIGNUP_PASSWORD").value.trim(),
-        name: $("cfg_SIGNUP_NAME").value.trim(),
-        age: $("cfg_SIGNUP_AGE").value.trim(),
-      };
-      let payload;
-      try {
-        payload = await requestJSON("POST", "/api/uc-signup/start", body);
-      } catch (error) {
-        log(`ERROR: 启动 UC 注册任务失败: ${error.message || error}`);
-        return;
-      }
-      updateEmailQueueUI(payload.emailQueue || {});
-      log({ message: "UC 注册任务已启动", ucSignupState: payload.ucSignupState });
-      await refreshUcSignupStatus();
-    }
-
-    async function stopUcSignup() {
-      let payload;
-      try {
-        payload = await requestJSON("POST", "/api/uc-signup/stop", {});
-      } catch (error) {
-        log(`ERROR: 停止 UC 注册任务失败: ${error.message || error}`);
-        return;
-      }
-      log({ message: "已请求停止 UC 注册任务", ucSignupState: payload.ucSignupState });
-      await refreshUcSignupStatus();
-    }
-
-    async function run(task) {
-      try { await task(); } catch (error) { log(`ERROR: ${error.message || error}`); }
-    }
-
-    $("refreshAll").onclick = () => run(async () => { await refreshHealth(); await loadAppSettings(); await loadEmailQueue(); await loadSettings(); await refreshUcSignupStatus(); });
-    $("balanceBtn").onclick = () => run(async () => log(await requestJSON("GET", "/api/balance")));
-    $("purchaseBtn").onclick = () => run(purchasePhone);
-    $("currentBtn").onclick = () => run(currentPhone);
-    $("codeBtn").onclick = () => run(() => phoneAction("code"));
-    $("cancelBtn").onclick = () => run(() => phoneAction("cancel"));
-    $("finishBtn").onclick = () => run(() => phoneAction("finish"));
-    $("loadSettingsBtn").onclick = () => run(loadSettings);
-    $("saveSettingsBtn").onclick = () => run(saveSettings);
-    $("generateEmailQueueBtn").onclick = () => run(generateEmailQueue);
-    $("saveEmailQueueBtn").onclick = () => run(saveEmailQueue);
-    $("loadEmailQueueBtn").onclick = () => run(loadEmailQueue);
-    $("mailCodeBtn").onclick = () => run(refreshEmailCode);
-    $("loadAppSettingsBtn").onclick = () => run(loadAppSettings);
-    $("saveAppSettingsBtn").onclick = () => run(saveAppSettings);
-    $("ucSignupStartBtn").onclick = () => run(startUcSignup);
-    $("ucSignupStopBtn").onclick = () => run(stopUcSignup);
-    $("ucSignupRefreshBtn").onclick = () => run(async () => { await refreshUcSignupStatus(); await refreshUcSignupLogs(); });
-
-    run(async () => { await refreshHealth(); await loadAppSettings(); await loadEmailQueue(); await loadSettings(); await refreshUcSignupStatus(); });
-  </script>
-</body>
+<head><meta charset="utf-8"><title>fuckoai Linux</title></head>
+<body><p>control_panel.html is missing. Restore it and reload /ui.</p></body>
 </html>
 """
 
@@ -2187,7 +1723,7 @@ def get_purchase_settings(
 
     raw_groups = file_config.get("purchaseGroups")
     if file_config and not isinstance(raw_groups, list):
-        raise HeroSmsError("purchase_config.json 必须使用新格式，并提供 purchaseGroups 数组")
+        raise HeroSmsError("购买配置必须使用新格式，并提供 purchaseGroups 数组")
     groups: list[dict[str, Any]] = []
     if isinstance(raw_groups, list):
         for index, item in enumerate(raw_groups, start=1):
@@ -2310,15 +1846,21 @@ def get_filters(source: dict[str, Any] | None = None, defaults: dict[str, Any] |
     }
 
 
+def get_country_search_fields(item: dict[str, Any]) -> list[str]:
+    fields = [str(item.get("name") or ""), str(item.get("localName") or ""), str(item.get("code") or "")]
+    if isinstance(item.get("searchTerms"), list):
+        fields.extend(str(term) for term in item.get("searchTerms") if term)
+    fields.extend(COUNTRY_ALIASES_BY_NAME.get(str(item.get("name") or "").lower(), []))
+    return fields
+
+
 def search_countries_by_name(name: str, limit: int = 8) -> list[dict[str, Any]]:
     query = normalize_text(name)
     if not query:
         return []
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for item in CLIENT.get_countries():
-        fields = [str(item.get("name") or ""), str(item.get("localName") or ""), str(item.get("code") or "")]
-        if isinstance(item.get("searchTerms"), list):
-            fields.extend(str(term) for term in item.get("searchTerms") if term)
+        fields = get_country_search_fields(item)
         score: int | None = None
         for field in fields:
             normalized = normalize_text(field)
@@ -2361,9 +1903,7 @@ def search_country_items(items: list[dict[str, Any]], query_text: str, limit: in
     query = normalize_text(query_text)
     ranked: list[tuple[int, str, dict[str, Any]]] = []
     for item in items:
-        fields = [str(item.get("name") or ""), str(item.get("localName") or ""), str(item.get("code") or "")]
-        if isinstance(item.get("searchTerms"), list):
-            fields.extend(str(term) for term in item.get("searchTerms") if term)
+        fields = get_country_search_fields(item)
         if not query:
             label = str(item.get("name") or item.get("localName") or item.get("code") or "")
             ranked.append((3, label.lower(), item))
@@ -2754,10 +2294,13 @@ def sync_record_status(record: dict[str, Any]) -> dict[str, Any]:
 
 
 class AppHandler(BaseHTTPRequestHandler):
-    server_version = "HeroSmsPython/1.0"
+    server_version = "fuckoai/1.0"
 
     def is_authenticated(self) -> bool:
         if not CONFIG.admin_password:
+            return True
+        header_password = self.headers.get("X-Admin-Password", "")
+        if header_password and hmac.compare_digest(header_password, CONFIG.admin_password):
             return True
         cookie_header = self.headers.get("Cookie", "")
         cookies: dict[str, str] = {}
@@ -2766,7 +2309,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 continue
             key, value = part.split("=", 1)
             cookies[key.strip()] = value.strip()
-        return hmac.compare_digest(cookies.get("gpt_reg_admin", ""), make_admin_session_token())
+        return hmac.compare_digest(cookies.get("fuckoai_admin", ""), make_admin_session_token())
 
     def require_authenticated(self) -> bool:
         if self.is_authenticated():
@@ -2793,7 +2336,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if CONFIG.admin_password:
                     self.send_header(
                         "Set-Cookie",
-                        f"gpt_reg_admin={make_admin_session_token()}; Path=/; HttpOnly; SameSite=Lax",
+                        f"fuckoai_admin={make_admin_session_token()}; Path=/; HttpOnly; SameSite=Lax",
                     )
                 self.end_headers()
                 self.wfile.write(json.dumps({"authenticated": True}, ensure_ascii=False).encode("utf-8"))
@@ -2803,7 +2346,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if method == "POST" and path == "/api/auth/logout":
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Set-Cookie", "gpt_reg_admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+            self.send_header("Set-Cookie", "fuckoai_admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
             self.end_headers()
             self.wfile.write(json.dumps({"authenticated": False}, ensure_ascii=False).encode("utf-8"))
             return True
@@ -2842,7 +2385,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.send_json(
                     200,
                     {
-                        "name": "HeroSMS Local API",
+                        "name": APP_NAME,
                         "apiBase": "/api",
                         "health": "/api/health",
                         "purchase": "/api/purchase",
@@ -2931,9 +2474,9 @@ class AppHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/purchase-catalog/countries":
             refresh = parse_bool_flag(query.get("refresh"), default=False)
-            limit = parse_positive_int(query.get("limit"), default=20)
             countries, cache = get_cached_countries(refresh=refresh)
-            matches = search_country_items(countries, query.get("query", ""), limit=min(max(limit, 1), 200))
+            limit = parse_positive_int(query.get("limit"), default=len(countries))
+            matches = search_country_items(countries, query.get("query", ""), limit=min(max(limit, 1), len(countries)))
             self.send_json(
                 200,
                 {
@@ -2950,7 +2493,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_json(
                 200,
                 {
-                    "items": search_country_items(countries, "", limit=50),
+                    "items": search_country_items(countries, "", limit=len(countries)),
                     "total": len(countries),
                     "cachedAt": cache.get("countriesCachedAt", ""),
                     "refreshed": True,
@@ -3414,13 +2957,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "refreshPurchaseCountries": "POST /api/purchase-catalog/countries/refresh",
                         "purchaseOperators": "GET /api/purchase-catalog/operators?countryCode=33&serviceCode=dr",
                         "purchase": "POST /api/purchase",
-                        "currentPhone": "GET /api/current-phone",
                         "listActive": "GET /api/activations",
-                        "getByPhone": "GET /api/phones/:phone",
-                        "getCodeByPhone": "GET /api/phones/:phone/code",
-                        "cancelByPhone": "POST /api/phones/:phone/cancel",
-                        "finishByPhone": "POST /api/phones/:phone/finish",
-                        "readyByPhone": "POST /api/phones/:phone/ready",
                         "emailQueue": "GET /api/email-queue",
                         "saveEmailQueue": "POST /api/email-queue",
                         "generateEmailQueue": "POST /api/email-queue/generate",
@@ -3514,7 +3051,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer((CONFIG.host, CONFIG.port), AppHandler)
-    print(f"HeroSMS local API listening on http://{CONFIG.host}:{CONFIG.port}")
+    print(f"{APP_NAME} listening on http://{CONFIG.host}:{CONFIG.port}")
     server.serve_forever()
 
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GPT Reg 控制面板</title>
+  <title>fuckoai 控制面板</title>
   <style>
     :root {
       color-scheme: light;
@@ -126,7 +126,7 @@
     .metric span { word-break: break-word; }
     .field { display: grid; gap: 6px; margin-bottom: 10px; }
     label { color: var(--muted); font-size: 12px; }
-    .env-key {
+    .config-key {
       color: var(--muted);
       font-size: 11px;
       margin-top: -4px;
@@ -206,6 +206,64 @@
       font-size: 12px;
     }
     .inline-check input { width: auto; }
+    .country-search-wrap {
+      position: relative;
+      display: grid;
+      gap: 6px;
+    }
+    .country-results {
+      display: none;
+      position: absolute;
+      z-index: 12;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      box-shadow: 0 12px 30px rgba(15, 23, 42, .16);
+    }
+    .country-results.active { display: block; }
+    .country-option {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      border: 0;
+      border-radius: 0;
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      background: #fff;
+    }
+    .country-option:last-child { border-bottom: 0; }
+    .country-option:hover,
+    .country-option:focus { background: #eef4ff; }
+    .country-option strong {
+      display: block;
+      font-size: 13px;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .country-option span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .country-option-code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      color: var(--primary);
+      font-size: 12px;
+    }
+    .country-empty {
+      padding: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
     .login {
       position: fixed;
       inset: 0;
@@ -255,12 +313,11 @@
   <div class="app">
     <aside id="sidebar" class="sidebar">
       <div class="brand">
-        <h1>GPT Reg</h1>
+        <h1>fuckoai</h1>
         <button id="logoutBtn">退出</button>
       </div>
       <nav class="nav">
         <button class="active" data-page="tasks">注册任务查看</button>
-        <button data-page="phones">号码工具</button>
         <button data-page="settings">设置</button>
         <button data-page="outputPage">输出</button>
       </nav>
@@ -301,13 +358,6 @@
             <h3>生成新邮箱</h3>
             <div class="grid-3">
               <div class="field">
-                <label for="emailMode">生成模式</label>
-                <select id="emailMode">
-                  <option value="sequential">顺序前缀</option>
-                  <option value="random">随机前缀</option>
-                </select>
-              </div>
-              <div class="field">
                 <label for="emailTotal">数量</label>
                 <input id="emailTotal" value="1" inputmode="numeric">
               </div>
@@ -317,12 +367,8 @@
               </div>
             </div>
             <div class="field">
-              <label for="firstEmail">顺序模式第一个邮箱</label>
-              <input id="firstEmail" value="user001@example.com">
-            </div>
-            <div class="field">
-              <label for="randomDomain">随机模式域名</label>
-              <input id="randomDomain" value="example.com">
+              <label for="randomDomain">邮箱后缀域名</label>
+              <input id="randomDomain" placeholder="example.com" autocomplete="off">
             </div>
             <div class="field">
               <label for="emailQueueText">待注册邮箱列表，一行一个</label>
@@ -345,26 +391,6 @@
         </div>
       </main>
 
-      <main id="phones" class="page">
-        <section>
-          <h3>号码和验证码</h3>
-          <div class="row">
-            <button id="balanceBtn">查余额</button>
-            <button id="purchaseBtn" class="primary">购买号码</button>
-            <button id="currentBtn">当前号码</button>
-          </div>
-          <div class="field" style="margin-top:10px">
-            <label for="phoneInput">手机号</label>
-            <input id="phoneInput" placeholder="购买后自动填入，也可手动输入">
-          </div>
-          <div class="row">
-            <button id="codeBtn">获取验证码</button>
-            <button id="cancelBtn" class="danger">取消号码</button>
-            <button id="finishBtn">完成号码</button>
-          </div>
-        </section>
-      </main>
-
       <main id="settings" class="page">
         <section>
           <h3>服务状态</h3>
@@ -376,11 +402,11 @@
           </div>
         </section>
         <section>
-          <h3>环境设置</h3>
+          <h3>应用配置</h3>
           <div id="appSettingsGrid" class="settings-grid"></div>
           <div class="row">
             <button id="loadAppSettingsBtn">重新加载</button>
-            <button id="saveAppSettingsBtn" class="primary">保存环境设置</button>
+            <button id="saveAppSettingsBtn" class="primary">保存应用配置</button>
           </div>
         </section>
         <section>
@@ -397,7 +423,7 @@
         <section>
           <h3>购买设置高级 JSON</h3>
           <div class="field">
-            <label for="settingsText">purchase_config.json</label>
+            <label for="settingsText">data/purchase_config.json</label>
             <textarea id="settingsText" spellcheck="false" style="min-height:300px"></textarea>
           </div>
           <div class="row">
@@ -435,23 +461,22 @@
     const output = $("output");
     const pageTitles = {
       tasks: "注册任务查看",
-      phones: "号码工具",
       settings: "设置",
       outputPage: "输出",
     };
     const appSettingKeys = [
-      "ADMIN_PASSWORD", "HOST", "PORT",
+      "HOST", "PORT",
       "HERO_SMS_API_KEY", "HERO_SMS_API_URL",
       "TEMP_MAIL_API_URL", "TEMP_MAIL_ADMIN_PASSWORD",
       "CPA_BASE_URL", "CPA_MANAGEMENT_KEY",
       "SIGNUP_PASSWORD", "SIGNUP_NAME", "SIGNUP_AGE",
-      "DEFAULT_SERVICE_NAME", "DEFAULT_SERVICE_CODE",
-      "DEFAULT_COUNTRY_NAME", "DEFAULT_COUNTRY_CODE", "DEFAULT_OPERATOR",
-      "DEFAULT_MAX_PRICE", "DEFAULT_EXACT_PRICE", "DEFAULT_FIXED_PRICE",
       "BROWSER_DISPLAY", "BROWSER_PROXY", "UC_SIGNUP_PROXY",
+      "UC_SIGNUP_PHONE_RETRIES", "UC_SIGNUP_SMS_TIMEOUT_SECONDS",
+      "UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS", "UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT",
+      "UC_SIGNUP_CHROME_BINARY", "UC_SIGNUP_CHROME_VERSION",
+      "REQUEST_TIMEOUT_MS", "ENABLE_CORS", "STORE_FILE", "PURCHASE_CONFIG_FILE",
     ];
     const settingLabels = {
-      ADMIN_PASSWORD: "控制面板管理员密码",
       HOST: "服务监听地址",
       PORT: "服务端口",
       HERO_SMS_API_KEY: "HeroSMS 接口密钥",
@@ -463,25 +488,57 @@
       SIGNUP_PASSWORD: "注册账号默认密码",
       SIGNUP_NAME: "注册资料默认姓名",
       SIGNUP_AGE: "注册资料默认年龄",
-      DEFAULT_SERVICE_NAME: "默认服务名称",
-      DEFAULT_SERVICE_CODE: "默认服务代码",
-      DEFAULT_COUNTRY_NAME: "默认国家/地区名称",
-      DEFAULT_COUNTRY_CODE: "默认国家/地区代码",
-      DEFAULT_OPERATOR: "默认运营商",
-      DEFAULT_MAX_PRICE: "默认最高价格",
-      DEFAULT_EXACT_PRICE: "默认精确价格",
-      DEFAULT_FIXED_PRICE: "是否固定价格",
       BROWSER_DISPLAY: "浏览器显示器编号",
       BROWSER_PROXY: "浏览器代理地址",
       UC_SIGNUP_PROXY: "自动注册代理地址",
+      UC_SIGNUP_PHONE_RETRIES: "同一邮箱换号重试次数",
+      UC_SIGNUP_SMS_TIMEOUT_SECONDS: "短信等待超时秒数",
+      UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS: "短信轮询间隔秒数",
+      UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT: "手机号密码页等待秒数",
+      UC_SIGNUP_CHROME_BINARY: "Chrome 可执行文件路径",
+      UC_SIGNUP_CHROME_VERSION: "Chrome 主版本号",
+      REQUEST_TIMEOUT_MS: "上游请求超时毫秒",
+      ENABLE_CORS: "启用 CORS",
+      STORE_FILE: "激活记录文件",
+      PURCHASE_CONFIG_FILE: "购买配置文件",
     };
     const secretKeys = new Set([
-      "ADMIN_PASSWORD", "HERO_SMS_API_KEY", "TEMP_MAIL_ADMIN_PASSWORD",
+      "HERO_SMS_API_KEY", "TEMP_MAIL_ADMIN_PASSWORD",
       "CPA_MANAGEMENT_KEY", "SIGNUP_PASSWORD",
     ]);
     let purchaseSettingsState = { serviceName: "OpenAI", serviceCode: "dr", purchaseGroups: [] };
     let countryOptions = [];
-    let countryDatalistBuilt = false;
+    let countrySearchSeq = 0;
+    const zhCountryCharMap = {
+      "國": "国", "爾": "尔", "亞": "亚", "達": "达", "蘭": "兰", "義": "义",
+      "羅": "罗", "馬": "马", "維": "维", "貝": "贝", "麥": "麦", "臘": "腊",
+      "盧": "卢", "門": "门", "臺": "台", "灣": "湾", "烏": "乌", "魯": "鲁",
+      "薩": "萨", "聖": "圣", "幾": "几", "納": "纳", "剛": "刚", "島": "岛",
+      "裡": "里", "蘇": "苏", "聯": "联", "長": "长", "茲": "兹", "團": "团",
+      "圓": "圆", "贊": "赞", "歐": "欧", "愛": "爱", "倫": "伦", "屬": "属",
+      "與": "与", "內": "内", "庫": "库", "錫": "锡",
+    };
+    const countryAliasesByName = {
+      bhutan: ["不丹"],
+      france: ["法国"],
+      italy: ["意大利"],
+      reunion: ["留尼汪"],
+      georgia: ["格鲁吉亚"],
+      england: ["英国", "英格兰"],
+      "united kingdom": ["英国"],
+      "united states": ["美国"],
+      uae: ["阿联酋"],
+      "united arab emirates": ["阿联酋"],
+      "ivory coast": ["科特迪瓦"],
+      laos: ["老挝"],
+      syria: ["叙利亚"],
+      vietnam: ["越南"],
+      "south korea": ["韩国"],
+      "north macedonia": ["北马其顿"],
+      "bosnia and herzegovina": ["波黑", "波斯尼亚和黑塞哥维那"],
+      "democratic republic of the congo": ["刚果金"],
+      "republic of the congo": ["刚果布"],
+    };
 
     function buildSettingsInputs() {
       const grid = $("appSettingsGrid");
@@ -493,7 +550,7 @@
         label.htmlFor = `cfg_${key}`;
         label.textContent = settingLabels[key] || key;
         const hint = document.createElement("div");
-        hint.className = "env-key";
+        hint.className = "config-key";
         hint.textContent = key;
         const input = document.createElement("input");
         input.id = `cfg_${key}`;
@@ -507,6 +564,14 @@
     function log(value) {
       const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
       output.textContent = `${new Date().toLocaleTimeString()} ${text}\n\n` + output.textContent;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
     }
 
     function showLogin(message = "") {
@@ -590,7 +655,11 @@
       const payload = await requestJSON("GET", "/api/purchase-settings");
       purchaseSettingsState = payload.purchaseSettings || payload;
       $("settingsText").value = JSON.stringify(purchaseSettingsState, null, 2);
-      await ensureCountriesLoaded(false);
+      try {
+        await ensureCountriesLoaded(false);
+      } catch (error) {
+        $("countryCacheState").textContent = `国家缓存未加载: ${error.message || error}`;
+      }
       renderPurchaseGroups();
     }
 
@@ -613,27 +682,82 @@
       return `${name}${english} (${country.code})`;
     }
 
-    function ensureCountryDatalist() {
-      if (countryDatalistBuilt) return;
-      let datalist = $("countryOptions");
-      if (!datalist) {
-        datalist = document.createElement("datalist");
-        datalist.id = "countryOptions";
-        document.body.appendChild(datalist);
+    function simplifyCountryText(value) {
+      return String(value || "").replace(/[^\s]/g, (ch) => zhCountryCharMap[ch] || ch);
+    }
+
+    function normalizeCountryText(value) {
+      return simplifyCountryText(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    }
+
+    function countrySearchTerms(country) {
+      const terms = [
+        country.localName,
+        country.name,
+        country.code,
+        ...(Array.isArray(country.searchTerms) ? country.searchTerms : []),
+        ...(countryAliasesByName[String(country.name || "").toLowerCase()] || []),
+      ];
+      const result = [];
+      const seen = new Set();
+      for (const raw of terms) {
+        const value = String(raw || "").trim();
+        if (!value) continue;
+        for (const term of [value, simplifyCountryText(value)]) {
+          const normalized = normalizeCountryText(term);
+          if (normalized && !seen.has(normalized)) {
+            seen.add(normalized);
+            result.push(term);
+          }
+        }
       }
-      datalist.innerHTML = countryOptions.map((country) => `<option value="${buildCountryLabel(country).replaceAll('"', '&quot;')}"></option>`).join("");
-      countryDatalistBuilt = true;
+      return result;
+    }
+
+    function countryMatchesInput(country, input) {
+      const query = normalizeCountryText(input);
+      if (!query) return false;
+      return countrySearchTerms(country).some((term) => {
+        const normalized = normalizeCountryText(term);
+        return normalized === query || normalized.includes(query) || query.includes(normalized);
+      });
+    }
+
+    function mergeCountryOptions(items = []) {
+      const byCode = new Map(countryOptions.map((country) => [String(country.code), country]));
+      for (const item of items) {
+        if (item && item.code !== undefined) byCode.set(String(item.code), item);
+      }
+      countryOptions = [...byCode.values()];
+      return countryOptions;
     }
 
     async function ensureCountriesLoaded(refresh) {
       if (!refresh && countryOptions.length) return;
       const payload = refresh
         ? await requestJSON("POST", "/api/purchase-catalog/countries/refresh", {})
-        : await requestJSON("GET", "/api/purchase-catalog/countries?limit=200");
+        : await requestJSON("GET", "/api/purchase-catalog/countries?limit=500");
       countryOptions = payload.items || [];
-      countryDatalistBuilt = false;
-      ensureCountryDatalist();
       $("countryCacheState").textContent = `国家缓存: ${payload.total || countryOptions.length} 个，更新时间 ${payload.cachedAt || "--"}`;
+    }
+
+    async function searchCountriesForInput(value) {
+      const text = String(value || "").trim();
+      if (!text) return [];
+      const payload = await requestJSON("GET", `/api/purchase-catalog/countries?limit=50&query=${encodeURIComponent(text)}`);
+      const remoteItems = payload.items || [];
+      mergeCountryOptions(remoteItems);
+      const combined = [];
+      const seen = new Set();
+      for (const country of [...remoteItems, ...countryOptions]) {
+        if (!country || country.code === undefined || seen.has(String(country.code))) continue;
+        if (countryMatchesInput(country, text)) {
+          seen.add(String(country.code));
+          combined.push(country);
+        }
+        if (combined.length >= 12) break;
+      }
+      return combined;
     }
 
     function findCountryByInput(value) {
@@ -643,7 +767,57 @@
       const normalized = text.toLowerCase();
       return countryOptions.find((country) => String(country.code) === code)
         || countryOptions.find((country) => buildCountryLabel(country).toLowerCase() === normalized)
-        || countryOptions.find((country) => `${country.localName || ""} ${country.name || ""} ${country.code || ""}`.toLowerCase().includes(normalized));
+        || countryOptions.find((country) => countryMatchesInput(country, text));
+    }
+
+    function hideCountryResults(card) {
+      const results = card.querySelector("[data-field='countryResults']");
+      if (results) {
+        results.classList.remove("active");
+        results.innerHTML = "";
+      }
+    }
+
+    function renderCountryResults(card, items, message = "") {
+      const results = card.querySelector("[data-field='countryResults']");
+      if (!results) return;
+      if (message) {
+        results.innerHTML = `<div class="country-empty">${escapeHtml(message)}</div>`;
+        results.classList.add("active");
+        return;
+      }
+      if (!items.length) {
+        results.innerHTML = `<div class="country-empty">没有匹配的国家/地区</div>`;
+        results.classList.add("active");
+        return;
+      }
+      results.innerHTML = items.map((country, index) => {
+        const localName = country.localName || country.name || country.code || "";
+        const english = country.name && country.name !== localName ? country.name : "";
+        return `
+          <button type="button" class="country-option" data-index="${index}">
+            <span>
+              <strong>${escapeHtml(localName)}</strong>
+              <span>${escapeHtml(english)}</span>
+            </span>
+            <span class="country-option-code">${escapeHtml(country.code)}</span>
+          </button>
+        `;
+      }).join("");
+      results.classList.add("active");
+      for (const button of results.querySelectorAll("[data-index]")) {
+        button.onclick = () => selectCountryForCard(card, items[Number(button.dataset.index)]);
+      }
+    }
+
+    async function selectCountryForCard(card, country) {
+      if (!country) return;
+      card.querySelector("[data-field='countrySearch']").value = buildCountryLabel(country);
+      card.querySelector("[data-field='countryCode']").value = country.code || "";
+      card.querySelector("[data-field='countryName']").value = country.localName || country.name || "";
+      hideCountryResults(card);
+      await loadOperatorsForCard(card, false);
+      syncPurchaseJsonFromDom();
     }
 
     function getPurchaseGroupsFromDom() {
@@ -719,8 +893,11 @@
               <input data-field="label" value="${String(group.label).replaceAll('"', '&quot;')}">
             </div>
             <div class="field">
-              <label>国家/地区，输入中文名可匹配编号</label>
-              <input data-field="countrySearch" list="countryOptions" value="${country ? buildCountryLabel(country).replaceAll('"', '&quot;') : String(group.countryName || group.countryCode).replaceAll('"', '&quot;')}">
+              <label>国家/地区搜索</label>
+              <div class="country-search-wrap">
+                <input data-field="countrySearch" autocomplete="off" placeholder="输入中文名、英文名或编号" value="${escapeHtml(country ? buildCountryLabel(country) : String(group.countryName || group.countryCode))}">
+                <div class="country-results" data-field="countryResults"></div>
+              </div>
             </div>
             <div class="field">
               <label>国家/地区编号</label>
@@ -775,15 +952,46 @@
           syncPurchaseJsonFromDom();
         };
         card.querySelector("[data-action='refreshOperators']").onclick = () => run(() => loadOperatorsForCard(card, true));
-        card.querySelector("[data-field='countrySearch']").addEventListener("change", async () => {
-          const selected = findCountryByInput(card.querySelector("[data-field='countrySearch']").value);
-          if (selected) {
-            card.querySelector("[data-field='countryCode']").value = selected.code || "";
-            card.querySelector("[data-field='countryName']").value = selected.localName || selected.name || "";
-            await loadOperatorsForCard(card, false);
+        const countrySearch = card.querySelector("[data-field='countrySearch']");
+        const runCountrySearch = async () => {
+          const value = countrySearch.value.trim();
+          const seq = ++countrySearchSeq;
+          if (!value) {
+            hideCountryResults(card);
+            return;
           }
+          renderCountryResults(card, [], "搜索中...");
+          try {
+            const items = await searchCountriesForInput(value);
+            if (seq !== countrySearchSeq) return;
+            renderCountryResults(card, items);
+          } catch (error) {
+            if (seq !== countrySearchSeq) return;
+            renderCountryResults(card, [], `搜索失败: ${error.message || error}`);
+          }
+        };
+        countrySearch.addEventListener("input", () => {
+          card.querySelector("[data-field='countryCode']").value = "";
+          card.querySelector("[data-field='countryName']").value = "";
+          clearTimeout(countrySearch._countrySearchTimer);
+          countrySearch._countrySearchTimer = setTimeout(runCountrySearch, 180);
           syncPurchaseJsonFromDom();
         });
+        countrySearch.addEventListener("focus", () => {
+          if (countrySearch.value.trim()) runCountrySearch();
+        });
+        countrySearch.addEventListener("keydown", async (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            const selected = findCountryByInput(countrySearch.value);
+            if (selected) await selectCountryForCard(card, selected);
+          } else if (event.key === "Escape") {
+            hideCountryResults(card);
+          }
+        });
+        document.addEventListener("click", (event) => {
+          if (!card.contains(event.target)) hideCountryResults(card);
+        }, { capture: true });
         for (const input of card.querySelectorAll("input, select")) {
           input.addEventListener("input", syncPurchaseJsonFromDom);
           input.addEventListener("change", syncPurchaseJsonFromDom);
@@ -843,7 +1051,7 @@
         if (input) settings[key] = input.value;
       }
       const result = await requestJSON("POST", "/api/app-settings", { settings });
-      log({ message: "环境设置已保存", envFile: result.envFile });
+      log({ message: "应用配置已保存", configFile: result.configFile });
       await refreshHealth();
     }
 
@@ -858,8 +1066,6 @@
 
     async function generateEmailQueue() {
       const payload = await requestJSON("POST", "/api/email-queue/generate", {
-        mode: $("emailMode").value,
-        firstEmail: $("firstEmail").value.trim(),
         domain: $("randomDomain").value.trim(),
         total: $("emailTotal").value.trim(),
       });
@@ -880,27 +1086,6 @@
       const url = email ? `/api/email-queue/mail/latest?address=${encodeURIComponent(email)}` : "/api/email-queue/mail/latest";
       const payload = await requestJSON("GET", url);
       updateEmailQueueUI(payload.emailQueue || {});
-      log(payload);
-    }
-
-    async function purchasePhone() {
-      const payload = await requestJSON("POST", "/api/purchase", {});
-      const phone = payload.item && payload.item.phoneNumber;
-      if (phone) $("phoneInput").value = phone;
-      log(payload);
-    }
-
-    async function currentPhone() {
-      const payload = await requestJSON("GET", "/api/current-phone");
-      const phone = payload.item && payload.item.phoneNumber;
-      if (phone) $("phoneInput").value = phone;
-      log(payload);
-    }
-
-    async function phoneAction(action) {
-      const phone = $("phoneInput").value.trim();
-      if (!phone) throw new Error("请先输入手机号");
-      const payload = await requestJSON(action === "code" ? "GET" : "POST", `/api/phones/${encodeURIComponent(phone)}/${action}`, action === "code" ? undefined : {});
       log(payload);
     }
 
@@ -1012,12 +1197,6 @@
       if (event.key === "Enter") login();
     });
     $("refreshAll").onclick = () => run(initData);
-    $("balanceBtn").onclick = () => run(async () => log(await requestJSON("GET", "/api/balance")));
-    $("purchaseBtn").onclick = () => run(purchasePhone);
-    $("currentBtn").onclick = () => run(currentPhone);
-    $("codeBtn").onclick = () => run(() => phoneAction("code"));
-    $("cancelBtn").onclick = () => run(() => phoneAction("cancel"));
-    $("finishBtn").onclick = () => run(() => phoneAction("finish"));
     $("loadSettingsBtn").onclick = () => run(loadSettings);
     $("saveSettingsBtn").onclick = () => run(saveSettings);
     $("addPurchaseGroupBtn").onclick = () => run(addPurchaseGroup);

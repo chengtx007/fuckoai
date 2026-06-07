@@ -1,22 +1,14 @@
+name: fuckoai
+
 services:
-  gpt-reg:
+  fuckoai:
     build:
       context: .
-    container_name: gpt-reg
+    container_name: fuckoai
     restart: unless-stopped
     network_mode: host
-    env_file:
-      - .env
     environment:
-      HOST: 0.0.0.0
-      PORT: 3030
-      BROWSER_DISPLAY: ":1"
-      BROWSER_COMMAND: "chromium --no-sandbox"
-      VNC_WEB_URL: "http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=remote"
-      VNC_PORT: "5901"
-      NOVNC_PORT: "6080"
-      VNC_RESOLUTION: "1440x900x24"
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
-      - ./.env:/app/.env
-      - ./purchase_config.json:/app/purchase_config.json
+      - ./config.json:/app/config.json
       - ./data:/app/data

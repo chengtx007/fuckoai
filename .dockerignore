@@ -1,5 +1,6 @@
 .env
+purchase_config.json
 __pycache__/
 *.pyc
-data/linux-browser-profile/
+data/
 .git/

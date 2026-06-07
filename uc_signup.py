@@ -16,15 +16,19 @@ from selenium.common.exceptions import TimeoutException, StaleElementReferenceEx
 
 # ── 配置 ────────────────────────────────────────────────
 API    = os.getenv("UC_SIGNUP_API_BASE", os.getenv("API_BASE", "http://127.0.0.1:3030"))
-PROXY  = os.getenv("UC_SIGNUP_PROXY", os.getenv("BROWSER_PROXY", os.getenv("PROXY", "http://127.0.0.1:8080")))
+PROXY  = os.getenv("UC_SIGNUP_PROXY", os.getenv("BROWSER_PROXY", os.getenv("PROXY", ""))).strip()
 ROOT   = Path(__file__).resolve().parent
 MAX_RETRIES    = 3   # 每步最大重试次数
 MAX_ERROR_REFRESH = 5  # 错误页刷新次数
+PHONE_RETRY_LIMIT = int(os.getenv("UC_SIGNUP_PHONE_RETRIES", "0"))
+SMS_TIMEOUT_SECONDS = int(os.getenv("UC_SIGNUP_SMS_TIMEOUT_SECONDS", "135"))
+SMS_POLL_INTERVAL_SECONDS = int(os.getenv("UC_SIGNUP_SMS_POLL_INTERVAL_SECONDS", "10"))
+PHONE_PASSWORD_PAGE_TIMEOUT = int(os.getenv("UC_SIGNUP_PHONE_PASSWORD_PAGE_TIMEOUT", "25"))
 
 # 注册参数
-PW   = os.getenv("SIGNUP_PASSWORD", "ChangeMe123456")
+PW   = os.getenv("SIGNUP_PASSWORD", "ChangeMe123456!")
 NAME = os.getenv("SIGNUP_NAME", "Test User")
-AGE  = os.getenv("SIGNUP_AGE", "22")
+AGE  = os.getenv("SIGNUP_AGE", "18")
 DISPLAY = os.getenv("UC_SIGNUP_DISPLAY", os.getenv("BROWSER_DISPLAY", ":1"))
 def detect_chrome_binary():
     configured = os.getenv("UC_SIGNUP_CHROME_BINARY", os.getenv("CHROME_BINARY", "")).strip()
@@ -63,6 +67,9 @@ def log(msg, level="info"):
 def api(method, path, body=None):
     url = f"{API}{path}"
     h = {"Accept": "application/json"}
+    admin_password = os.getenv("UC_SIGNUP_ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", "")).strip()
+    if admin_password:
+        h["X-Admin-Password"] = admin_password
     data = json.dumps(body).encode() if body else None
     if data: h["Content-Type"] = "application/json"
     resp = urlopen(Request(url, data=data, method=method, headers=h), timeout=30)
@@ -75,7 +82,9 @@ if env_file.exists():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            key = k.strip()
+            if key == "ADMIN_PASSWORD":
+                os.environ.setdefault(key, v.strip())
 
 API = os.getenv("UC_SIGNUP_API_BASE", os.getenv("API_BASE", API)).rstrip("/")
 PROXY = os.getenv("UC_SIGNUP_PROXY", os.getenv("BROWSER_PROXY", os.getenv("PROXY", PROXY)))
@@ -95,6 +104,12 @@ class FatalError(Exception):
     """不可恢复的错误"""
     pass
 
+class PhoneRetry(Exception):
+    """当前手机号不可用，需要同一邮箱换号重试"""
+    def __init__(self, message, *, cancel_phone=False):
+        super().__init__(message)
+        self.cancel_phone = cancel_phone
+
 # ── 主类 ────────────────────────────────────────────────
 class SignupBot:
     def __init__(self, email=""):
@@ -105,8 +120,11 @@ class SignupBot:
         os.environ["DISPLAY"] = DISPLAY
         opts = uc.ChromeOptions()
         opts.binary_location = CHROME_BINARY
-        for a in ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu",
-                   "--lang=zh-CN","--window-size=1440,900",f"--proxy-server={PROXY}"]:
+        args = ["--no-sandbox","--disable-dev-shm-usage","--disable-gpu",
+                "--lang=zh-CN","--window-size=1440,900"]
+        if PROXY:
+            args.append(f"--proxy-server={PROXY}")
+        for a in args:
             opts.add_argument(a)
         self.d = uc.Chrome(options=opts, version_main=CHROME_VERSION)
         log(f"  webdriver={self.d.execute_script('return navigator.webdriver')}")
@@ -212,14 +230,19 @@ class SignupBot:
 
     # ── SMS/邮箱轮询 ─────────────────────────────────────
     def poll_sms(self, phone):
-        for i in range(30):
+        deadline = time.time() + SMS_TIMEOUT_SECONDS
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
             try:
                 r = api("GET", f"/api/phones/{phone}/code")
                 code = r.get("status", {}).get("code")
                 if code: return str(code)
             except: pass
-            if i % 4 == 0: log(f"  SMS {i+1}/30")
-            time.sleep(10)
+            remaining = max(0, int(deadline - time.time()))
+            if attempt == 1 or attempt % 3 == 0:
+                log(f"  SMS 等待中，剩余约 {remaining}s")
+            time.sleep(min(SMS_POLL_INTERVAL_SECONDS, max(1, deadline - time.time())))
         return None
 
     def poll_email(self, addr):
@@ -255,6 +278,95 @@ class SignupBot:
             log(f"  邮箱创建确认失败，继续使用传入邮箱: {e}", "warn")
         return self.requested_email
 
+    def close_browser(self):
+        if self.d:
+            try: self.d.quit()
+            except: pass
+            self.d = None
+
+    def cancel_phone(self, phone, reason=""):
+        if not phone:
+            return False
+        try:
+            result = api("POST", f"/api/phones/{phone}/cancel")
+            warning = str(result.get("warning") or "").strip() if isinstance(result, dict) else ""
+            if warning:
+                log(f"  手机号 {phone} 取消已提交但上游暂不允许立即取消: {warning}", "warn")
+            else:
+                log(f"  已取消手机号 {phone}{'：' + reason if reason else ''}", "warn")
+            return True
+        except Exception as e:
+            log(f"  取消手机号失败 {phone}: {e}", "warn")
+            return False
+
+    def wait_password_input_after_phone(self):
+        deadline = time.time() + PHONE_PASSWORD_PAGE_TIMEOUT
+        last_url = ""
+        while time.time() < deadline:
+            self.wait_ready(timeout=2)
+            last_url = self.d.current_url
+            try:
+                if self.d.find_elements(By.CSS_SELECTOR, "input[name=new-password], input[autocomplete='new-password']"):
+                    return
+            except Exception:
+                pass
+            time.sleep(1)
+        raise PhoneRetry(
+            f"手机号提交后未进入创建密码页，可能已被使用: {last_url[:120]}",
+            cancel_phone=False,
+        )
+
+    def register_with_phone(self, phone, email):
+        full_phone = "+" + re.sub(r'\D', '', phone)
+        log(f"📱 {phone}  📧 {email}")
+
+        self.launch()
+
+        self.d.get("https://chatgpt.com/auth/login?intent=signup")
+        time.sleep(12)
+        log(f"注册: {self.d.title}")
+
+        self._step("Cookie", lambda: self.click("Accept all"))
+
+        self._step("展开手机表单", lambda: (
+            self.click("Continue with phone"), time.sleep(4)
+        ))
+
+        self._step("填手机号", lambda: (
+            self.fill("input[name=phoneNumberInput]", full_phone),
+            self.click("Continue")
+        ))
+        self.wait_password_input_after_phone()
+        log(f"→ {self.d.title}")
+
+        self._step("填密码", lambda: (
+            self.fill("input[name=new-password]", PW),
+            self.click("Continue")
+        ))
+        self.wait_url_contains("contact-verification")
+        log(f"→ {self.d.title}")
+
+        code = self.poll_sms(phone)
+        if not code:
+            raise PhoneRetry(f"短信验证码 {SMS_TIMEOUT_SECONDS}s 超时", cancel_phone=True)
+        log(f"  SMS: {code}")
+
+        self._step("短信验证", lambda: (
+            self.fill("input[name=code]", code),
+            self.click("Continue")
+        ))
+        time.sleep(3)
+        log(f"→ {self.d.title}")
+
+        self._step("姓名年龄", lambda: (
+            self.fill("input[name=name]", NAME),
+            self.fill("input[name=age]", AGE),
+            self.click("Finish creating account")
+        ))
+        time.sleep(8)
+        log(f"✅ 注册完成: {self.d.title}")
+        return full_phone
+
     # ── 步骤执行器（带错误恢复）──────────────────────────
     def _step(self, name, fn):
         """执行一个步骤，出错时刷新并从当前页重试"""
@@ -283,60 +395,40 @@ class SignupBot:
         log("ChatGPT 注册 → OAuth → CPA 回调")
         log("=" * 55)
 
-        phone = email = ""
+        phone = email = full_phone = ""
         completed_success = False
         try:
             # ═══ 准备 ═══
-            phone = api("POST", "/api/purchase", {})["item"]["phoneNumber"]
             email = self.prepare_email()
-            full_phone = "+" + re.sub(r'\D', '', phone)
-            log(f"📱 {phone}  📧 {email}")
+            last_phone_error = ""
+            phone_attempt = 0
+            while True:
+                phone_attempt += 1
+                if PHONE_RETRY_LIMIT > 0:
+                    attempt_label = f"{phone_attempt}/{PHONE_RETRY_LIMIT}"
+                else:
+                    attempt_label = f"{phone_attempt}/不限"
+                if PHONE_RETRY_LIMIT > 0 and phone_attempt > PHONE_RETRY_LIMIT:
+                    raise FatalError(f"同一邮箱换号重试已达上限: {last_phone_error}")
 
-            self.launch()
-
-            # ═══ Part 1: 注册 ═══
-            self.d.get("https://chatgpt.com/auth/login?intent=signup")
-            time.sleep(12)
-            log(f"注册: {self.d.title}")
-
-            self._step("Cookie", lambda: self.click("Accept all"))
-
-            self._step("展开手机表单", lambda: (
-                self.click("Continue with phone"), time.sleep(4)
-            ))
-
-            self._step("填手机号", lambda: (
-                self.fill("input[name=phoneNumberInput]", full_phone),
-                self.click("Continue")
-            ))
-            self.wait_url_contains("openai.com")
-            log(f"→ {self.d.title}")
-
-            self._step("填密码", lambda: (
-                self.fill("input[name=new-password]", PW),
-                self.click("Continue")
-            ))
-            self.wait_url_contains("contact-verification")
-            log(f"→ {self.d.title}")
-
-            code = self.poll_sms(phone)
-            if not code: raise FatalError("SMS超时")
-            log(f"  SMS: {code}")
-
-            self._step("短信验证", lambda: (
-                self.fill("input[name=code]", code),
-                self.click("Continue")
-            ))
-            time.sleep(3)
-            log(f"→ {self.d.title}")
-
-            self._step("姓名年龄", lambda: (
-                self.fill("input[name=name]", NAME),
-                self.fill("input[name=age]", AGE),
-                self.click("Finish creating account")
-            ))
-            time.sleep(8)
-            log(f"✅ 注册完成: {self.d.title}")
+                phone = api("POST", "/api/purchase", {})["item"]["phoneNumber"]
+                log(f"  手机号尝试 {attempt_label}")
+                try:
+                    full_phone = self.register_with_phone(phone, email)
+                    break
+                except PhoneRetry as e:
+                    last_phone_error = str(e)
+                    log(f"  当前手机号不可用: {e}", "warn")
+                    if e.cancel_phone:
+                        log("  准备取消旧手机号，随后购买新手机号并从注册页重新开始", "warn")
+                        self.cancel_phone(phone, str(e))
+                    else:
+                        log(f"  未使用短信验证码，不取消手机号 {phone}", "warn")
+                    phone = ""
+                    full_phone = ""
+                    self.close_browser()
+                    log(f"  继续使用同一邮箱换下一个手机号，从头开始注册: {email}", "warn")
+                    continue
 
             # ═══ Part 2: OAuth（同一浏览器，保持登录态）═══
             oa = api("GET", "/api/codex-oauth/url")
@@ -445,13 +537,11 @@ class SignupBot:
             log(f"❌ {e}", "error")
         finally:
             if phone and not completed_success:
-                try: api("POST", f"/api/phones/{phone}/cancel")
-                except: pass
+                self.cancel_phone(phone, "任务未完成")
             if self.d:
                 try: self.d.save_screenshot("/tmp/uc_error.png")
                 except: pass
-                try: self.d.quit()
-                except: pass
+            self.close_browser()
         return False
 
     def _click_account_button(self):
@@ -471,7 +561,7 @@ class SignupBot:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ChatGPT 注册 + OAuth CPA 回调")
     parser.add_argument("--email", default="", help="指定本次注册使用的邮箱")
-    parser.add_argument("--api-base", default="", help="本地 GPT Reg API 地址")
+    parser.add_argument("--api-base", default="", help="本地 fuckoai API 地址")
     parser.add_argument("--proxy", default="", help="Chrome 代理地址")
     parser.add_argument("--display", default="", help="X11 DISPLAY")
     parser.add_argument("--chrome-binary", default="", help="Chrome 可执行文件路径")
