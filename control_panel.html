@@ -126,6 +126,12 @@
     .metric span { word-break: break-word; }
     .field { display: grid; gap: 6px; margin-bottom: 10px; }
     label { color: var(--muted); font-size: 12px; }
+    .env-key {
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: -4px;
+      word-break: break-all;
+    }
     input, textarea, select {
       width: 100%;
       border: 1px solid var(--line);
@@ -410,6 +416,31 @@
       "DEFAULT_MAX_PRICE", "DEFAULT_EXACT_PRICE", "DEFAULT_FIXED_PRICE",
       "BROWSER_DISPLAY", "BROWSER_PROXY", "UC_SIGNUP_PROXY",
     ];
+    const settingLabels = {
+      ADMIN_PASSWORD: "控制面板管理员密码",
+      HOST: "服务监听地址",
+      PORT: "服务端口",
+      HERO_SMS_API_KEY: "HeroSMS 接口密钥",
+      HERO_SMS_API_URL: "HeroSMS 接口地址",
+      TEMP_MAIL_API_URL: "临时邮箱接口地址",
+      TEMP_MAIL_ADMIN_PASSWORD: "临时邮箱管理员密码",
+      CPA_BASE_URL: "CPA / OAuth 服务地址",
+      CPA_MANAGEMENT_KEY: "CPA 管理密钥",
+      SIGNUP_PASSWORD: "注册账号默认密码",
+      SIGNUP_NAME: "注册资料默认姓名",
+      SIGNUP_AGE: "注册资料默认年龄",
+      DEFAULT_SERVICE_NAME: "默认服务名称",
+      DEFAULT_SERVICE_CODE: "默认服务代码",
+      DEFAULT_COUNTRY_NAME: "默认国家/地区名称",
+      DEFAULT_COUNTRY_CODE: "默认国家/地区代码",
+      DEFAULT_OPERATOR: "默认运营商",
+      DEFAULT_MAX_PRICE: "默认最高价格",
+      DEFAULT_EXACT_PRICE: "默认精确价格",
+      DEFAULT_FIXED_PRICE: "是否固定价格",
+      BROWSER_DISPLAY: "浏览器显示器编号",
+      BROWSER_PROXY: "浏览器代理地址",
+      UC_SIGNUP_PROXY: "自动注册代理地址",
+    };
     const secretKeys = new Set([
       "ADMIN_PASSWORD", "HERO_SMS_API_KEY", "TEMP_MAIL_ADMIN_PASSWORD",
       "CPA_MANAGEMENT_KEY", "SIGNUP_PASSWORD",
@@ -423,12 +454,15 @@
         wrap.className = "field";
         const label = document.createElement("label");
         label.htmlFor = `cfg_${key}`;
-        label.textContent = key;
+        label.textContent = settingLabels[key] || key;
+        const hint = document.createElement("div");
+        hint.className = "env-key";
+        hint.textContent = key;
         const input = document.createElement("input");
         input.id = `cfg_${key}`;
         input.autocomplete = "off";
         input.type = secretKeys.has(key) ? "password" : "text";
-        wrap.append(label, input);
+        wrap.append(label, hint, input);
         grid.appendChild(wrap);
       }
     }
