@@ -11,5 +11,8 @@ services:
     environment:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
     volumes:
+      - ./server.py:/app/server.py:ro
+      - ./uc_signup.py:/app/uc_signup.py:ro
+      - ./control_panel.html:/app/control_panel.html:ro
       - ./config.json:/app/config.json
       - ./data:/app/data
