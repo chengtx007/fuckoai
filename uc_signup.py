@@ -6,6 +6,7 @@ ChatGPT 注册 + OAuth CPA 回调（最终版）
 import argparse, json, os, re, shutil, signal, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import undetected_chromedriver as uc
@@ -72,8 +73,21 @@ def api(method, path, body=None):
         h["X-Admin-Password"] = admin_password
     data = json.dumps(body).encode() if body else None
     if data: h["Content-Type"] = "application/json"
-    resp = urlopen(Request(url, data=data, method=method, headers=h), timeout=30)
-    return json.loads(resp.read().decode())
+    try:
+        resp = urlopen(Request(url, data=data, method=method, headers=h), timeout=30)
+        return json.loads(resp.read().decode())
+    except HTTPError as e:
+        raw = e.read().decode("utf-8", errors="replace").strip()
+        detail = raw
+        if raw:
+            try:
+                payload = json.loads(raw)
+                detail = payload.get("error") or payload.get("message") or raw
+            except Exception:
+                pass
+        raise ApiError(f"{method} {path} HTTP {e.code}: {detail or e.reason}") from e
+    except URLError as e:
+        raise ApiError(f"{method} {path} 连接失败: {e.reason}") from e
 
 # 加载 .env
 env_file = ROOT / ".env"
@@ -102,6 +116,10 @@ class StepError(Exception):
 
 class FatalError(Exception):
     """不可恢复的错误"""
+    pass
+
+class ApiError(Exception):
+    """内部 API 调用失败"""
     pass
 
 class PhoneRetry(Exception):

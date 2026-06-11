@@ -596,6 +596,12 @@ class HeroSmsError(Exception):
     pass
 
 
+class PurchaseError(HeroSmsError):
+    def __init__(self, message: str, attempts: list[dict[str, Any]] | None = None) -> None:
+        super().__init__(message)
+        self.attempts = attempts or []
+
+
 class TempMailError(Exception):
     pass
 
@@ -2282,7 +2288,7 @@ def purchase_with_fallback(source: dict[str, Any] | None = None) -> dict[str, An
             continue
 
     detail = "；".join(f"{item['index']}. {item['label']}: {item['error']}" for item in attempts_summary) or "没有可执行的购买组"
-    raise HeroSmsError(f"所有购买配置都失败: {detail}") from last_error
+    raise PurchaseError(f"所有购买配置都失败: {detail}", attempts_summary) from last_error
 
 
 def find_activation_by_phone(phone_number: str) -> dict[str, Any] | None:
@@ -2409,10 +2415,23 @@ class AppHandler(BaseHTTPRequestHandler):
                 )
                 return
             self.send_json(404, {"error": "接口不存在"})
+        except PurchaseError as error:
+            print(f"[API ERROR] {method} {parsed.path}: {type(error).__name__}: {error}", flush=True)
+            self.send_json(
+                500,
+                {
+                    "error": str(error),
+                    "type": type(error).__name__,
+                    "path": parsed.path,
+                    "attempts": error.attempts,
+                },
+            )
         except HeroSmsError as error:
-            self.send_json(500, {"error": str(error)})
+            print(f"[API ERROR] {method} {parsed.path}: {type(error).__name__}: {error}", flush=True)
+            self.send_json(500, {"error": str(error), "type": type(error).__name__, "path": parsed.path})
         except Exception as error:
-            self.send_json(500, {"error": str(error)})
+            print(f"[API ERROR] {method} {parsed.path}: {type(error).__name__}: {error}", flush=True)
+            self.send_json(500, {"error": str(error), "type": type(error).__name__, "path": parsed.path})
 
     def handle_api(self, method: str, parsed: Any) -> None:
         path = parsed.path
